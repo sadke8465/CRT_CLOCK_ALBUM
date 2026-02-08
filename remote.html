@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TV Remote</title>
+    <style>
+        body { 
+            font-family: -apple-system, sans-serif; 
+            background: #111; 
+            color: white; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+        }
+        button {
+            width: 80%;
+            padding: 25px;
+            margin: 15px;
+            font-size: 22px;
+            font-weight: bold;
+            border: none;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        button:active { transform: scale(0.96); opacity: 0.8; }
+        .btn-art { 
+            background: linear-gradient(135deg, #007bff, #0056b3); 
+            color: white; 
+            box-shadow: 0 4px 15px rgba(0,123,255,0.4);
+        }
+        .btn-clock { 
+            background: linear-gradient(135deg, #28a745, #1e7e34); 
+            color: white; 
+            box-shadow: 0 4px 15px rgba(40,167,69,0.4);
+        }
+        h1 { margin-bottom: 40px; font-weight: 300; letter-spacing: 1px; }
+        #status { margin-top: 20px; font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+
+    <h1>CONTROL</h1>
+    <button class="btn-art" onclick="sendCommand('ARTWORK')">Album Art</button>
+    <button class="btn-clock" onclick="sendCommand('CLOCK')">Clock</button>
+    <div id="status">Ready</div>
+
+    <script>
+        // CHANGE THIS TO A UNIQUE NAME IF YOU WANT
+        const TOPIC = 'noams-tv-controller-882';
+
+        function sendCommand(mode) {
+            const status = document.getElementById('status');
+            status.innerText = "Sending...";
+            
+            fetch(`https://ntfy.sh/${TOPIC}`, {
+                method: 'POST',
+                body: mode
+            })
+            .then(response => {
+                if(response.ok) status.innerText = "Sent: " + mode;
+                else status.innerText = "Error";
+            })
+            .catch(err => {
+                status.innerText = "Network Error";
+            });
+        }
+    </script>
+</body>
+</html>
