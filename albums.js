@@ -7,12 +7,12 @@
 // --- CONFIGURATION ---
 const CONFIG = {
     CSV_FILENAME: 'applemusic-3.csv',
-    CSV_INTERVAL_MS: 300000, // 5 Minutes
+    CSV_INTERVAL_MS: 500000, // 5 Minutes
     STORE_COUNTRY: 'il', // Israel
     
     // Visual Timing
     FADE_DURATION: 1000, 
-    BLACK_HOLD_DURATION: 1000, 
+    BLACK_HOLD_DURATION: 500, 
     
     // Last.fm Config
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
@@ -352,8 +352,8 @@ function injectStyles() {
             height: 100%;
             background-size: cover;
             background-position: center;
-            filter: blur(50px) brightness(0.4);
-            transform: scale(1.2);
+            filter: blur(150px) brightness(0.7);
+            transform: scale(1.4);
             z-index: 1;
             
             /* FADE TRANSITION SETTINGS */
