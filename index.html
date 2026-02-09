@@ -17,7 +17,7 @@
             
             /* HARDWARE ACCELERATED FADE TRANSITION */
             opacity: 1;
-            transition: opacity 1s ease-in-out;
+            transition: opacity 0.5s ease-in-out;
             will-change: opacity;
         }
     </style>
@@ -127,7 +127,7 @@
             else if (hours === 10 && minutes === 0) {
                 loadModule(Albums);
             }
-        }, 10000); // Check every 10s to ensure we don't miss the minute
+        }, 100000); // Check every 10s to ensure we don't miss the minute
     </script>
 </body>
 </html>
