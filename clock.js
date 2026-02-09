@@ -13,8 +13,8 @@ export function init(container) {
         fontUrl: 'LostTrialVAR.ttf', // Ensure this file is in your root folder
         colors: ['#4BC30B', '#2094F3', '#FFD53F', '#F35020'],
         stretchFactor: 1.35,
-        maxFrontDots: 7,
-        dotSize: 105 // Increased dot size
+        maxFrontDots: 3,
+        dotSize: 100 // Increased dot size
     };
 
     let currentDate = new Date().getDate(); // Start with real date
