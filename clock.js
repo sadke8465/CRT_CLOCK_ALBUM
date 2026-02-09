@@ -14,7 +14,7 @@ export function init(container) {
         colors: ['#4BC30B', '#2094F3', '#FFD53F', '#F35020'],
         stretchFactor: 1.35,
         maxFrontDots: 5,
-        dotSize: 30
+        dotSize: 55 // Increased dot size
     };
 
     let currentDate = new Date().getDate(); // Start with real date
@@ -44,7 +44,7 @@ export function init(container) {
             .dc-number {
                 font-family: '${CONFIG.fontName}', sans-serif;
                 color: #292821;
-                font-size: 85vh; /* 85% of screen height */
+                /* Font size is set via JS now */
                 line-height: 0;
                 font-stretch: condensed;
                 font-variation-settings: "wdth" 50;
@@ -138,9 +138,24 @@ export function init(container) {
     };
 
     const updateLayout = () => {
-        // Dynamic Font Sizing: 85% of the container height
         const h = container.clientHeight;
-        dateDisplay.style.fontSize = `${h * 0.85}px`;
+        const w = container.clientWidth;
+
+        // Font Sizing Logic:
+        // 1. Height Constraint: 85% of container height
+        const sizeByHeight = h * 0.85;
+
+        // 2. Width Constraint: Ensure text fits within width
+        // The wrapper is narrower (w / 1.35). 
+        // We assume the font aspect ratio is roughly 0.6 (width/height) for 2 digits.
+        // We divide by 0.7 to be safe (so it doesn't touch edges).
+        const effectiveWidth = w / CONFIG.stretchFactor; 
+        const sizeByWidth = effectiveWidth / 0.7; 
+
+        // Pick the smaller of the two to guarantee full visibility
+        const finalSize = Math.min(sizeByHeight, sizeByWidth);
+
+        dateDisplay.style.fontSize = `${finalSize}px`;
         
         generateDots();
     };
@@ -183,7 +198,6 @@ export function cleanup() {
         dateCheckInterval = null;
     }
     
-    // Optional: Remove styles
     const styleEl = document.getElementById('dot-calendar-styles');
     if (styleEl) {
         styleEl.remove();
