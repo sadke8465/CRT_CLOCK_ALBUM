@@ -1,238 +1,193 @@
 // clock.js
 
-let frameId = null;
 let resizeHandler = null;
+let clickHandler = null;
+let styleElement = null;
 
 export function init(container) {
-    console.log("Starting Discrete Analog Clock (Thick Minute Hand)...");
+    console.log("Starting Dot Calendar...");
 
-    // 1. Inject Fonts and Styles dynamically
-    const fontId = 'clock-font-geist';
-    if (!document.getElementById(fontId)) {
-        const link = document.createElement('link');
-        link.id = fontId;
-        link.rel = 'stylesheet';
-        link.href = 'https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap';
-        document.head.appendChild(link);
+    // --- Configuration ---
+    const CONFIG = {
+        fontName: 'LostTrialVAR',
+        fontUrl: 'LostTrialVAR.ttf', // Ensure this file exists relative to index
+        colors: ['#4BC30B', '#2094F3', '#FFD53F', '#F35020'],
+        stretchFactor: 1.35,
+        maxFrontDots: 5,
+        dotSize: 30
+    };
+
+    let currentDate = 8;
+
+    // --- 1. Inject Styles Dynamically ---
+    const styleId = 'dot-calendar-styles';
+    if (!document.getElementById(styleId)) {
+        styleElement = document.createElement('style');
+        styleElement.id = styleId;
+        // Added font-size fallback to 85vh
+        styleElement.textContent = `
+            @font-face {
+                font-family: '${CONFIG.fontName}';
+                src: url('${CONFIG.fontUrl}') format('truetype');
+            }
+
+            .dc-wrapper {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scaleX(${CONFIG.stretchFactor});
+                width: calc(100% / ${CONFIG.stretchFactor}); 
+                height: 100%;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .dc-number {
+                font-family: '${CONFIG.fontName}', sans-serif;
+                color: #292821;
+                font-size: 85vh; /* Fallback size */
+                line-height: 0;
+                font-stretch: condensed;
+                font-variation-settings: "wdth" 50;
+                z-index: 10;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                user-select: none;
+                white-space: nowrap;
+                pointer-events: none;
+            }
+
+            .dc-dot {
+                position: absolute;
+                width: ${CONFIG.dotSize}px;
+                height: ${CONFIG.dotSize}px;
+                border-radius: 50%;
+                transition: top 0.5s ease, left 0.5s ease;
+                pointer-events: none;
+            }
+
+            .dc-dot.front { z-index: 20; }
+            .dc-dot.back { z-index: 1; }
+        `;
+        document.head.appendChild(styleElement);
     }
 
-    // 2. Setup DOM (Canvas)
-    container.innerHTML = ''; // Clear previous content
+    // --- 2. Setup DOM ---
+    container.innerHTML = ''; 
     container.style.position = 'relative'; 
     container.style.overflow = 'hidden';
-    container.style.backgroundColor = '#fea500'; // Orange Background
+    container.style.backgroundColor = '#fcfbf7'; // Cream background
+    container.style.cursor = 'pointer';
+    container.style.userSelect = 'none';
 
-    const canvas = document.createElement('canvas');
-    canvas.style.display = 'block';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    container.appendChild(canvas);
+    // Create the internal wrapper that handles the stretch
+    const wrapper = document.createElement('div');
+    wrapper.className = 'dc-wrapper';
+    container.appendChild(wrapper);
 
-    // Optimization: Disable alpha channel as we paint the full background
-    const ctx = canvas.getContext('2d', { alpha: false }); 
+    // Create the Number element
+    const dateDisplay = document.createElement('div');
+    dateDisplay.className = 'dc-number';
+    dateDisplay.innerText = '08';
+    wrapper.appendChild(dateDisplay);
 
-    // --- Configuration Constants ---
-    const STRETCH_FACTOR = 1.35; // Horizontal Stretch
+    // --- 3. Logic ---
 
-    const COLORS = {
-        bg: '#fea500', 
-        face: '#ffffff',
-        ticks: '#111111',
-        text: '#111111',
-        handOutline: '#111111',
-        handFill: '#ffffff', 
-        secondHand: '#fea500', 
-        rim: '#dddddd'
-    };
+    // Define generateDots first to ensure it's available for updateLayout
+    const generateDots = () => {
+        // Update Text
+        dateDisplay.innerText = currentDate.toString().padStart(2, '0');
 
-    // --- State ---
-    const state = {
-        secRotation: 0,
-        minRotation: 0,
-        hourRotation: 0,
-        width: 0,
-        height: 0,
-        radius: 0,
-        scale: 1
-    };
+        // Clear existing dots
+        const existingDots = wrapper.querySelectorAll('.dc-dot');
+        existingDots.forEach(d => d.remove());
 
-    // --- Helpers ---
-    function drawRoundedRect(ctx, x, y, w, h, r) {
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + w - r, y);
-        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-        ctx.lineTo(x + w, y + h - r);
-        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-        ctx.lineTo(x + r, y + h);
-        ctx.quadraticCurveTo(x, y + h, x, y + h - r); 
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
-        ctx.closePath();
-    }
-
-    function drawTick(ctx, y, w, h) {
-        ctx.fillStyle = COLORS.ticks;
-        ctx.fillRect(-w/2, y, w, h);
-    }
-
-    // --- Resize Logic ---
-    const resize = () => {
-        state.width = container.clientWidth;
-        state.height = container.clientHeight;
+        // Calculate Boundaries
+        // We use the wrapper's dimensions. 
+        const width = wrapper.clientWidth;
+        const height = wrapper.clientHeight;
         
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = state.width * dpr;
-        canvas.height = state.height * dpr;
-        
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.scale(dpr, dpr);
-        state.scale = dpr;
+        const maxX = width - CONFIG.dotSize;
+        const maxY = height - CONFIG.dotSize;
 
-        const maxRadiusHeight = state.height / 2;
-        const maxRadiusWidth = (state.width / 2) / STRETCH_FACTOR;
+        let dotsInFrontCount = 0;
 
-        state.radius = Math.min(maxRadiusHeight, maxRadiusWidth) * 0.85;
-    };
-    
-    window.addEventListener('resize', resize);
-    resizeHandler = resize; 
-    resize();
+        for (let i = 0; i < currentDate; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'dc-dot';
 
-    // --- Animation Loop ---
-    const tick = () => {
-        const now = new Date();
-        const currentSec = now.getSeconds();
-        const currentMin = now.getMinutes();
-        const currentHour = now.getHours();
+            // Color
+            const randomColor = CONFIG.colors[Math.floor(Math.random() * CONFIG.colors.length)];
+            dot.style.backgroundColor = randomColor;
 
-        // 1. Logic Update
-        
-        // Instant Second Hand: purely integer based (0-59)
-        state.secRotation = (currentSec / 60) * Math.PI * 2;
+            // Position
+            const x = Math.random() * maxX;
+            const y = Math.random() * maxY;
+            dot.style.left = `${x}px`;
+            dot.style.top = `${y}px`;
 
-        // Instant Minute Hand: purely integer based (0-59)
-        state.minRotation = (currentMin / 60) * Math.PI * 2;
-
-        // Hour Hand: Moves once per minute (snaps with the minute hand)
-        state.hourRotation = ((currentHour % 12 + currentMin / 60) / 12) * Math.PI * 2;
-
-        // 2. Drawing
-        const r = state.radius;
-        const cx = state.width / 2;
-        const cy = state.height / 2;
-
-        ctx.fillStyle = COLORS.bg;
-        ctx.fillRect(0, 0, state.width, state.height);
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        
-        // APPLY STRETCH
-        ctx.scale(STRETCH_FACTOR, 1); 
-
-        // Body & Face
-        ctx.beginPath();
-        ctx.arc(0, 0, r, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.rim;
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.95, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.face;
-        ctx.fill();
-
-        // Numbers
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = COLORS.text;
-        const fontSize = r * 0.125;
-        ctx.font = `300 ${fontSize}px "Geist", sans-serif`;
-
-        for (let i = 1; i <= 12; i++) {
-            const angle = (i * (Math.PI * 2 / 12));
-            ctx.save();
-            ctx.rotate(angle);
-            const numDist = r * 0.72; 
-            ctx.translate(0, -numDist);
-            ctx.rotate(-angle); 
-            ctx.fillText(i.toString(), 0, 0);
-            ctx.restore();
-        }
-
-        // Ticks
-        for (let i = 0; i < 60; i++) {
-            const angle = (i * (Math.PI * 2 / 60));
-            ctx.save();
-            ctx.rotate(angle);
-            if (i % 5 !== 0) {
-                ctx.translate(0, -r * 0.9);
-                drawTick(ctx, 0, r*0.005, r*0.03); 
+            // Layer (Front/Back)
+            const wantsFront = Math.random() < 0.5;
+            if (wantsFront && dotsInFrontCount < CONFIG.maxFrontDots) {
+                dot.classList.add('front');
+                dotsInFrontCount++;
             } else {
-                ctx.translate(0, -r * 0.9);
-                drawTick(ctx, 0, r*0.010, r*0.06); 
+                dot.classList.add('back');
             }
-            ctx.restore();
+
+            wrapper.appendChild(dot);
         }
-
-        // Hands Helper
-        const drawCompositeHand = (length, width) => {
-            ctx.fillStyle = COLORS.handOutline;
-            drawRoundedRect(ctx, -width/2, -length, width, length + width, width/3);
-            ctx.fill();
-
-            ctx.fillStyle = COLORS.handFill;
-            const inset = width * 0.2;
-            drawRoundedRect(ctx, -width/2 + inset, -length + inset, width - inset*2, length * 0.8, width/4);
-            ctx.fill();
-        };
-
-        // Hour Hand (Width: 0.06)
-        ctx.save();
-        ctx.rotate(state.hourRotation); 
-        drawCompositeHand(r * 0.5, r * 0.06);
-        ctx.restore();
-
-        // Minute Hand (Width: 0.06 - Match Hour Hand)
-        ctx.save();
-        ctx.rotate(state.minRotation);
-        drawCompositeHand(r * 0.8, r * 0.06);
-        ctx.restore();
-
-        // Second Hand (Orange)
-        ctx.save();
-        ctx.rotate(state.secRotation); 
-        
-        ctx.fillStyle = COLORS.secondHand;
-        ctx.fillRect(-r*0.01, -r*0.85, r*0.02, r*1.1); 
-        
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.04, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.01, 0, Math.PI * 2);
-        ctx.fillStyle = "#cc8400"; 
-        ctx.fill();
-        
-        ctx.restore(); // End second hand
-        ctx.restore(); // End translate
-
-        frameId = requestAnimationFrame(tick);
     };
+
+    const updateLayout = () => {
+        // Dynamic Font Sizing: 85% of the container height
+        const h = container.clientHeight;
+        dateDisplay.style.fontSize = `${h * 0.85}px`;
+        
+        generateDots();
+    };
+
+    // --- 4. Event Listeners ---
     
-    // Start Loop
-    tick();
+    // Resize
+    resizeHandler = () => {
+        updateLayout();
+    };
+    window.addEventListener('resize', resizeHandler);
+
+    // Click (Increment Date)
+    clickHandler = () => {
+        currentDate++;
+        if (currentDate > 31) currentDate = 1;
+        generateDots();
+    };
+    container.addEventListener('click', clickHandler);
+
+    // Initial render
+    // Small timeout to ensure container has dimensions if mounted immediately
+    setTimeout(updateLayout, 0);
 }
 
 export function cleanup() {
-    console.log("Stopping Analog Clock...");
-    if (frameId) {
-        cancelAnimationFrame(frameId);
-        frameId = null;
-    }
+    console.log("Stopping Dot Calendar...");
+    
     if (resizeHandler) {
         window.removeEventListener('resize', resizeHandler);
         resizeHandler = null;
+    }
+
+    if (clickHandler) {
+         // Note: If you attached the click listener to 'container', 
+         // it gets removed when 'container.innerHTML' is cleared by the next init(),
+         // so explicit removal isn't strictly necessary but is good practice if keeping the same reference.
+         clickHandler = null;
+    }
+    
+    // Optional: Remove the injected styles to keep DOM clean
+    const styleEl = document.getElementById('dot-calendar-styles');
+    if (styleEl) {
+        styleEl.remove();
     }
 }
