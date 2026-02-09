@@ -352,7 +352,7 @@ function injectStyles() {
             height: 100%;
             background-size: cover;
             background-position: center;
-            filter: blur(150px) brightness(0.7);
+            filter: blur(150px) brightness(0.85);
             transform: scale(1.4);
             z-index: 1;
             
