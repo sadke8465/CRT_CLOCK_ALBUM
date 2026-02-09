@@ -1,30 +1,29 @@
 // clock.js
 
 let resizeHandler = null;
-let clickHandler = null;
+let dateCheckInterval = null;
 let styleElement = null;
 
 export function init(container) {
-    console.log("Starting Dot Calendar...");
+    console.log("Starting Real-Time Dot Calendar...");
 
     // --- Configuration ---
     const CONFIG = {
         fontName: 'LostTrialVAR',
-        fontUrl: 'LostTrialVAR.ttf', // Ensure this file exists relative to index
+        fontUrl: 'LostTrialVAR.ttf', // Ensure this file is in your root folder
         colors: ['#4BC30B', '#2094F3', '#FFD53F', '#F35020'],
         stretchFactor: 1.35,
         maxFrontDots: 5,
         dotSize: 30
     };
 
-    let currentDate = 8;
+    let currentDate = new Date().getDate(); // Start with real date
 
     // --- 1. Inject Styles Dynamically ---
     const styleId = 'dot-calendar-styles';
     if (!document.getElementById(styleId)) {
         styleElement = document.createElement('style');
         styleElement.id = styleId;
-        // Added font-size fallback to 85vh
         styleElement.textContent = `
             @font-face {
                 font-family: '${CONFIG.fontName}';
@@ -45,7 +44,7 @@ export function init(container) {
             .dc-number {
                 font-family: '${CONFIG.fontName}', sans-serif;
                 color: #292821;
-                font-size: 85vh; /* Fallback size */
+                font-size: 85vh; /* 85% of screen height */
                 line-height: 0;
                 font-stretch: condensed;
                 font-variation-settings: "wdth" 50;
@@ -79,7 +78,6 @@ export function init(container) {
     container.style.position = 'relative'; 
     container.style.overflow = 'hidden';
     container.style.backgroundColor = '#fcfbf7'; // Cream background
-    container.style.cursor = 'pointer';
     container.style.userSelect = 'none';
 
     // Create the internal wrapper that handles the stretch
@@ -90,14 +88,13 @@ export function init(container) {
     // Create the Number element
     const dateDisplay = document.createElement('div');
     dateDisplay.className = 'dc-number';
-    dateDisplay.innerText = '08';
+    dateDisplay.innerText = currentDate.toString().padStart(2, '0');
     wrapper.appendChild(dateDisplay);
 
     // --- 3. Logic ---
 
-    // Define generateDots first to ensure it's available for updateLayout
     const generateDots = () => {
-        // Update Text
+        // Ensure text matches current date
         dateDisplay.innerText = currentDate.toString().padStart(2, '0');
 
         // Clear existing dots
@@ -105,7 +102,6 @@ export function init(container) {
         existingDots.forEach(d => d.remove());
 
         // Calculate Boundaries
-        // We use the wrapper's dimensions. 
         const width = wrapper.clientWidth;
         const height = wrapper.clientHeight;
         
@@ -149,6 +145,16 @@ export function init(container) {
         generateDots();
     };
 
+    // Check for date change every minute
+    const checkDate = () => {
+        const now = new Date();
+        const newDate = now.getDate();
+        if (newDate !== currentDate) {
+            currentDate = newDate;
+            generateDots();
+        }
+    };
+
     // --- 4. Event Listeners ---
     
     // Resize
@@ -157,16 +163,10 @@ export function init(container) {
     };
     window.addEventListener('resize', resizeHandler);
 
-    // Click (Increment Date)
-    clickHandler = () => {
-        currentDate++;
-        if (currentDate > 31) currentDate = 1;
-        generateDots();
-    };
-    container.addEventListener('click', clickHandler);
+    // Start Date Checker (runs every 60s)
+    dateCheckInterval = setInterval(checkDate, 60000);
 
     // Initial render
-    // Small timeout to ensure container has dimensions if mounted immediately
     setTimeout(updateLayout, 0);
 }
 
@@ -178,14 +178,12 @@ export function cleanup() {
         resizeHandler = null;
     }
 
-    if (clickHandler) {
-         // Note: If you attached the click listener to 'container', 
-         // it gets removed when 'container.innerHTML' is cleared by the next init(),
-         // so explicit removal isn't strictly necessary but is good practice if keeping the same reference.
-         clickHandler = null;
+    if (dateCheckInterval) {
+        clearInterval(dateCheckInterval);
+        dateCheckInterval = null;
     }
     
-    // Optional: Remove the injected styles to keep DOM clean
+    // Optional: Remove styles
     const styleEl = document.getElementById('dot-calendar-styles');
     if (styleEl) {
         styleEl.remove();
