@@ -14,7 +14,7 @@ export function init(container) {
         colors: ['#4BC30B', '#2094F3', '#FFD53F', '#F35020'],
         stretchFactor: 1.35,
         maxFrontDots: 5,
-        dotSize: 500 // Increased dot size
+        dotSize: 200 // Increased dot size
     };
 
     let currentDate = new Date().getDate(); // Start with real date
@@ -105,8 +105,8 @@ export function init(container) {
         const width = wrapper.clientWidth;
         const height = wrapper.clientHeight;
         
-        const maxX = width - CONFIG.dotSize*3;
-        const maxY = height - CONFIG.dotSize*3;
+        const maxX = width - CONFIG.dotSize;
+        const maxY = height - CONFIG.dotSize;
 
         let dotsInFrontCount = 0;
 
