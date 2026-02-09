@@ -105,8 +105,8 @@ export function init(container) {
         const width = wrapper.clientWidth;
         const height = wrapper.clientHeight;
         
-        const maxX = width - CONFIG.dotSize;
-        const maxY = height - CONFIG.dotSize;
+        const maxX = width - CONFIG.dotSize*3;
+        const maxY = height - CONFIG.dotSize*3;
 
         let dotsInFrontCount = 0;
 
