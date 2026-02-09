@@ -11,13 +11,13 @@ const CONFIG = {
     STORE_COUNTRY: 'il', // Israel
     
     // Visual Timing
-    FADE_DURATION: 1000, 
-    BLACK_HOLD_DURATION: 500, 
+    FADE_DURATION: 700, 
+    BLACK_HOLD_DURATION: 200, 
     
     // Last.fm Config
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
     LAST_FM_USER: 'Noamsadi95',
-    LAST_FM_POLL_INTERVAL: 15000, 
+    LAST_FM_POLL_INTERVAL: 5000, 
     LAST_FM_TIMEOUT_MS: 20 * 60 * 1000 // 20 Minutes
 };
 
@@ -352,7 +352,7 @@ function injectStyles() {
             height: 100%;
             background-size: cover;
             background-position: center;
-            filter: blur(150px) brightness(0.85);
+            filter: blur(120px) brightness(0.9);
             transform: scale(1.4);
             z-index: 1;
             
@@ -366,7 +366,7 @@ function injectStyles() {
         #art-wrapper {
             position: relative;
             z-index: 10;
-            height: 85vh; 
+            height: 90vh; 
             aspect-ratio: 1.4 / 1;
             max-width: 90vw;
             max-height: 90vh;
@@ -379,7 +379,7 @@ function injectStyles() {
             width: 100%;
             height: 100%;
             object-fit: fill; 
-            border-radius: 4px;
+            border-radius: 7px;
             
             /* FADE TRANSITION SETTINGS */
             opacity: 0; 
