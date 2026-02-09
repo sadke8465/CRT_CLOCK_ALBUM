@@ -1,7 +1,10 @@
 /**
  * ALBUMS MODULE
- * Replicates the exact behavior of the standalone HTML file,
- * including iTunes lookups, CSV fallback, and visual transitions.
+ * Behavior: 
+ * 1. Load CSV Data.
+ * 2. Check Last.fm.
+ * 3. IF playing -> Show Last.fm.
+ * 4. IF NOT playing -> Show CSV (ignore history).
  */
 
 // --- CONFIGURATION ---
@@ -28,6 +31,7 @@ let intervals = {
 };
 
 let state = {
+    startupDone: false, // NEW flag to handle the specific "first run" logic
     currentMode: 'CSV',
     csvTrackList: [],
     csvIndex: 0,
@@ -38,7 +42,7 @@ let state = {
 
 // --- MODULE INTERFACE ---
 
-export function init(container) {
+export async function init(container) {
     console.log("[Albums] Initializing...");
     
     // 1. Reset State
@@ -63,28 +67,30 @@ export function init(container) {
 
     // 4. Start Logic
     requestWakeLock();
-    loadCSV(); 
     
+    // Wait for CSV to be parsed BEFORE checking Last.fm
+    // This ensures that if we need to fallback, the data is ready.
+    await loadCSV(); 
+    
+    // Check Last.fm immediately to decide startup path
+    checkLastFm(); 
+
     // Start Polling
-    checkLastFm(); // Run once immediately
     intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
 }
 
 export function cleanup() {
     console.log("[Albums] Cleaning up...");
     
-    // 1. Clear Timers
     if (intervals.lastFm) clearInterval(intervals.lastFm);
     if (intervals.csv) clearInterval(intervals.csv);
-    
-    // 2. Clear visual intervals if any were set implicitly
-    // (The original code used nested Timeouts, which will naturally die or fail silently when DOM is gone)
     
     resetState();
 }
 
 function resetState() {
     state = {
+        startupDone: false,
         currentMode: 'CSV',
         csvTrackList: [],
         csvIndex: 0,
@@ -95,7 +101,7 @@ function resetState() {
     intervals = { lastFm: null, csv: null };
 }
 
-// --- CORE LOGIC (Ported Exactly) ---
+// --- CORE LOGIC ---
 
 async function requestWakeLock() {
     try {
@@ -120,16 +126,15 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
         const imgEl = document.getElementById('album-art');
         const bgEl = document.getElementById('bg-layer');
 
-        // Guard clause: If user switched modules while image was loading
         if (!imgEl || !bgEl) return; 
 
         // FADE OUT
         imgEl.style.opacity = '0';
         bgEl.style.opacity = '0';
 
-        // WAIT (1s fade + 1s black + buffer)
+        // WAIT
         setTimeout(() => {
-            if (!document.getElementById('album-art')) return; // Check existence again
+            if (!document.getElementById('album-art')) return;
 
             // SWAP
             imgEl.src = imageUrl;
@@ -157,6 +162,21 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     return true;
 }
 
+// --- HELPER: START CSV MODE ---
+function startCsvMode() {
+    console.log("Starting CSV Mode");
+    state.currentMode = 'CSV';
+    
+    // Clear existing CSV interval if any (safety)
+    if (intervals.csv) clearInterval(intervals.csv);
+    
+    // Trigger first image immediately
+    triggerCsvUpdate();
+    
+    // Start interval
+    intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+}
+
 // --- LAST.FM LOGIC ---
 async function checkLastFm() {
     const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${CONFIG.LAST_FM_USER}&api_key=${CONFIG.LAST_FM_API_KEY}&format=json&limit=1`;
@@ -168,21 +188,35 @@ async function checkLastFm() {
         if (data.recenttracks && data.recenttracks.track && data.recenttracks.track.length > 0) {
             const track = data.recenttracks.track[0];
             const trackIdentifier = track.name + ' - ' + track.artist['#text'];
-            
-            // Check if specifically marked as "Now Playing" by API
             const isNowPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
 
-            // INITIALIZATION (Startup)
-            if (state.displayedLastFmTrack === null) {
-                state.displayedLastFmTrack = trackIdentifier;
-                return;
+            // --- STARTUP LOGIC (Runs once) ---
+            if (!state.startupDone) {
+                state.startupDone = true;
+
+                if (isNowPlaying) {
+                    console.log("Startup: Track playing. Using Last.fm.");
+                    state.lastFmActivityTime = Date.now();
+                    state.displayedLastFmTrack = trackIdentifier; // Prevent re-trigger in main logic
+                    fetchAndDisplayLastFm(track, trackIdentifier);
+                } else {
+                    console.log("Startup: No track playing. Defaulting to CSV.");
+                    startCsvMode();
+                }
+                return; // Exit checkLastFm, wait for next poll
             }
 
-            // --- LOGIC TREE ---
-
+            // --- STANDARD RUNTIME LOGIC ---
+            
             if (isNowPlaying) {
                 // SCENARIO 1: A Track is Playing
                 state.lastFmActivityTime = Date.now();
+                
+                // If we were in CSV mode, stop it
+                if (state.currentMode === 'CSV') {
+                     if (intervals.csv) clearInterval(intervals.csv);
+                     state.currentMode = 'LASTFM';
+                }
 
                 if (trackIdentifier !== state.displayedLastFmTrack) {
                     fetchAndDisplayLastFm(track, trackIdentifier);
@@ -190,18 +224,23 @@ async function checkLastFm() {
 
             } else {
                 // SCENARIO 2: Paused / Stopped
-                
-                // --- TIMEOUT CHECK ---
-                const timeDiff = Date.now() - state.lastFmActivityTime;
-                if (state.currentMode === 'LASTFM' && timeDiff > CONFIG.LAST_FM_TIMEOUT_MS) {
-                    console.log("20 mins passed since last play. Going to CSV.");
-                    state.currentMode = 'CSV';
-                    triggerCsvUpdate();
+                // Only check timeout if we are currently displaying LastFM art
+                if (state.currentMode === 'LASTFM') {
+                    const timeDiff = Date.now() - state.lastFmActivityTime;
+                    if (timeDiff > CONFIG.LAST_FM_TIMEOUT_MS) {
+                        console.log("20 mins passed since last play. Reverting to CSV.");
+                        startCsvMode();
+                    }
                 }
             }
         }
     } catch (error) {
         console.error("Last.fm Error", error);
+        // On error during startup, fail safely to CSV
+        if (!state.startupDone) {
+            state.startupDone = true;
+            startCsvMode();
+        }
     }
 }
 
@@ -239,7 +278,7 @@ async function loadCSV() {
         if (!response.ok) return; 
         const text = await response.text();
         parseCSV(text);
-    } catch (error) { console.error(error); }
+    } catch (error) { console.error("CSV Load Error", error); }
 }
 
 function parseCSV(text) {
@@ -259,27 +298,34 @@ function parseCSV(text) {
 
     if (state.csvTrackList.length > 0) {
         shuffleArray(state.csvTrackList);
-        
-        // Force Start
-        state.currentMode = 'CSV';
-        triggerCsvUpdate();
-
-        intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+        // NOTE: We do NOT trigger updates here anymore. 
+        // We wait for checkLastFm to decide if we start CSV mode or not.
     }
 }
 
 function triggerCsvUpdate() {
     if (state.currentMode !== 'CSV') return;
+    if (state.csvTrackList.length === 0) return;
 
     const track = state.csvTrackList[state.csvIndex];
+    
+    // Safety check in case track is undefined
+    if(!track) return; 
+
     fetchItunesById(track.id, (url) => {
-        if (url) performVisualTransition(url); 
+        if (url) {
+            performVisualTransition(url);
+        } else {
+             // If image load fails, try next one quickly
+             state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
+             setTimeout(triggerCsvUpdate, 1000); // Small delay to prevent infinite fast loops
+             return;
+        }
     });
     state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
 }
 
 // --- API HELPERS (JSONP) ---
-// Note: Window attachment is required for JSONP to work
 function fetchItunesById(appleId, callback) {
     const cbName = 'cb_id_' + Math.floor(Math.random() * 100000);
     const script = document.createElement('script');
@@ -291,11 +337,10 @@ function fetchItunesById(appleId, callback) {
             const raw = data.results[0].artworkUrl100;
             callback(raw.replace('100x100bb', '1200x1200bb')); 
         } else {
-            // If failed, skip to next CSV track immediately
-            state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length; 
+            callback(null);
         }
     };
-    script.onerror = () => cleanupScript(script, cbName);
+    script.onerror = () => { cleanupScript(script, cbName); callback(null); };
     document.body.appendChild(script);
 }
 
@@ -322,7 +367,6 @@ function cleanupScript(script, cbName) {
     if(document.body.contains(script)) document.body.removeChild(script);
     delete window[cbName];
 }
-
 
 // --- STYLES INJECTOR ---
 function injectStyles() {
@@ -355,8 +399,6 @@ function injectStyles() {
             filter: blur(120px) brightness(0.9);
             transform: scale(1.4);
             z-index: 1;
-            
-            /* FADE TRANSITION SETTINGS */
             opacity: 0; 
             transition: opacity 1s ease-in-out;
             will-change: opacity;
@@ -380,8 +422,6 @@ function injectStyles() {
             height: 100%;
             object-fit: fill; 
             border-radius: 7px;
-            
-            /* FADE TRANSITION SETTINGS */
             opacity: 0; 
             transition: opacity 1s ease-in-out;
             will-change: opacity;
