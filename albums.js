@@ -3,14 +3,14 @@
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing -> Show Last.fm.
- * 4. IF NOT playing -> Show CSV (ignore history).
+ * 3. IF playing -> Show Last.fm (Static).
+ * 4. IF NOT playing -> Show CSV (Animated Pan/Zoom).
  */
 
 // --- CONFIGURATION ---
 const CONFIG = {
     CSV_FILENAME: 'applemusic-3.csv',
-    CSV_INTERVAL_MS: 500000, // 5 Minutes
+    CSV_INTERVAL_MS: 500000, // 5 Minutes (Matches 2x animation cycles of 250s)
     STORE_COUNTRY: 'il', // Israel
     
     // Visual Timing
@@ -31,7 +31,7 @@ let intervals = {
 };
 
 let state = {
-    startupDone: false, // NEW flag to handle the specific "first run" logic
+    startupDone: false,
     currentMode: 'CSV',
     csvTrackList: [],
     csvIndex: 0,
@@ -48,7 +48,7 @@ export async function init(container) {
     // 1. Reset State
     resetState();
 
-    // 2. Inject CSS
+    // 2. Inject CSS (Includes new Animation Keyframes)
     injectStyles();
 
     // 3. Inject HTML
@@ -69,7 +69,6 @@ export async function init(container) {
     requestWakeLock();
     
     // Wait for CSV to be parsed BEFORE checking Last.fm
-    // This ensures that if we need to fallback, the data is ready.
     await loadCSV(); 
     
     // Check Last.fm immediately to decide startup path
@@ -136,9 +135,22 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
         setTimeout(() => {
             if (!document.getElementById('album-art')) return;
 
-            // SWAP
+            // SWAP IMAGE
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
+
+            // --- ANIMATION LOGIC START ---
+            // 1. Remove animation class to reset state
+            imgEl.classList.remove('csv-animate');
+
+            // 2. Trigger Reflow (Reset CSS time to 0)
+            void imgEl.offsetWidth; 
+
+            // 3. Re-apply ONLY if in CSV mode
+            if (state.currentMode === 'CSV') {
+                imgEl.classList.add('csv-animate');
+            }
+            // --- ANIMATION LOGIC END ---
 
             requestAnimationFrame(() => {
                 // FADE IN
@@ -167,7 +179,7 @@ function startCsvMode() {
     console.log("Starting CSV Mode");
     state.currentMode = 'CSV';
     
-    // Clear existing CSV interval if any (safety)
+    // Clear existing CSV interval
     if (intervals.csv) clearInterval(intervals.csv);
     
     // Trigger first image immediately
@@ -190,29 +202,28 @@ async function checkLastFm() {
             const trackIdentifier = track.name + ' - ' + track.artist['#text'];
             const isNowPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
 
-            // --- STARTUP LOGIC (Runs once) ---
+            // --- STARTUP LOGIC ---
             if (!state.startupDone) {
                 state.startupDone = true;
 
                 if (isNowPlaying) {
                     console.log("Startup: Track playing. Using Last.fm.");
                     state.lastFmActivityTime = Date.now();
-                    state.displayedLastFmTrack = trackIdentifier; // Prevent re-trigger in main logic
+                    state.displayedLastFmTrack = trackIdentifier; 
                     fetchAndDisplayLastFm(track, trackIdentifier);
                 } else {
                     console.log("Startup: No track playing. Defaulting to CSV.");
                     startCsvMode();
                 }
-                return; // Exit checkLastFm, wait for next poll
+                return; 
             }
 
             // --- STANDARD RUNTIME LOGIC ---
-            
             if (isNowPlaying) {
                 // SCENARIO 1: A Track is Playing
                 state.lastFmActivityTime = Date.now();
                 
-                // If we were in CSV mode, stop it
+                // Switch mode if needed
                 if (state.currentMode === 'CSV') {
                      if (intervals.csv) clearInterval(intervals.csv);
                      state.currentMode = 'LASTFM';
@@ -224,11 +235,10 @@ async function checkLastFm() {
 
             } else {
                 // SCENARIO 2: Paused / Stopped
-                // Only check timeout if we are currently displaying LastFM art
                 if (state.currentMode === 'LASTFM') {
                     const timeDiff = Date.now() - state.lastFmActivityTime;
                     if (timeDiff > CONFIG.LAST_FM_TIMEOUT_MS) {
-                        console.log("20 mins passed since last play. Reverting to CSV.");
+                        console.log("Timeout passed. Reverting to CSV.");
                         startCsvMode();
                     }
                 }
@@ -236,7 +246,6 @@ async function checkLastFm() {
         }
     } catch (error) {
         console.error("Last.fm Error", error);
-        // On error during startup, fail safely to CSV
         if (!state.startupDone) {
             state.startupDone = true;
             startCsvMode();
@@ -248,17 +257,17 @@ function fetchAndDisplayLastFm(track, trackIdentifier) {
     fetchItunesBySearch(track.name, track.artist['#text'], (itunesImageUrl) => {
         let finalImage = itunesImageUrl;
         
-        // Fallback to Last.fm image if iTunes fails
         if (!finalImage && track.image) {
             const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
             if (imgObj) finalImage = imgObj['#text'];
         }
 
         if (finalImage) {
-            const success = performVisualTransition(finalImage, () => {
+            // onSuccess checks state.currentMode to decide whether to animate
+            // Here, we ensure mode is updated properly before call
+            state.currentMode = 'LASTFM'; 
+            performVisualTransition(finalImage, () => {
                 state.displayedLastFmTrack = trackIdentifier;
-                state.currentMode = 'LASTFM';
-                console.log("Switched to Last.fm:", trackIdentifier);
             });
         }
     });
@@ -298,8 +307,6 @@ function parseCSV(text) {
 
     if (state.csvTrackList.length > 0) {
         shuffleArray(state.csvTrackList);
-        // NOTE: We do NOT trigger updates here anymore. 
-        // We wait for checkLastFm to decide if we start CSV mode or not.
     }
 }
 
@@ -308,17 +315,14 @@ function triggerCsvUpdate() {
     if (state.csvTrackList.length === 0) return;
 
     const track = state.csvTrackList[state.csvIndex];
-    
-    // Safety check in case track is undefined
     if(!track) return; 
 
     fetchItunesById(track.id, (url) => {
         if (url) {
             performVisualTransition(url);
         } else {
-             // If image load fails, try next one quickly
              state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
-             setTimeout(triggerCsvUpdate, 1000); // Small delay to prevent infinite fast loops
+             setTimeout(triggerCsvUpdate, 1000); 
              return;
         }
     });
@@ -368,7 +372,7 @@ function cleanupScript(script, cbName) {
     delete window[cbName];
 }
 
-// --- STYLES INJECTOR ---
+// --- STYLES INJECTOR (UPDATED) ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
 
@@ -413,14 +417,10 @@ function injectStyles() {
             max-width: 90vw;
             max-height: 90vh;
             display: flex;
-            /* MODIFIED: Shadow 
-               120px = Higher blur
-               10px  = Slight spread 
-               0.5   = Lower opacity (50%)
-            */
             box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
-            /* Match the radius here to prevent shadow clipping */
             border-radius: 24px; 
+            /* IMPORTANT: Clips the zooming image so it stays inside the frame */
+            overflow: hidden; 
         }
 
         /* The Image Itself */
@@ -428,11 +428,56 @@ function injectStyles() {
             width: 100%;
             height: 100%;
             object-fit: fill; 
-            /* MODIFIED: Increased corner radius */
             border-radius: 24px; 
             opacity: 0; 
             transition: opacity 1s ease-in-out;
-            will-change: opacity;
+            will-change: opacity, transform, transform-origin;
+        }
+
+        /* --- ANIMATION CLASS --- */
+        /* Only applied in CSV mode via JS */
+        .csv-animate {
+            animation-name: panZoomCycle;
+            /* 250s per cycle * 2 iterations = 500s (Matches CSV_INTERVAL_MS) */
+            animation-duration: 250s; 
+            animation-timing-function: ease-in-out;
+            animation-iteration-count: 2;
+            animation-fill-mode: forwards;
+        }
+
+        /* --- KEYFRAMES --- 
+           Cycle Duration: 250s 
+           We move 'transform-origin' to create the Pan effect while keeping Scale(2).
+           This avoids complex translate math and works smoothly.
+           
+           Timing Map:
+           Tween = 5s (2% of 250s)
+           Hold  = 45s (18% of 250s)
+           Rest  = 45s (End)
+        */
+        @keyframes panZoomCycle {
+            /* Phase 1: Full Screen Rest (0% - 2% Tween In) */
+            0% { transform: scale(1); transform-origin: 50% 50%; }
+
+            /* Phase 2: Top-Left (2% - 20%) */
+            2% { transform: scale(2); transform-origin: 0% 0%; } 
+            20% { transform: scale(2); transform-origin: 0% 0%; }
+
+            /* Phase 3: Top-Right (22% - 40%) */
+            22% { transform: scale(2); transform-origin: 100% 0%; }
+            40% { transform: scale(2); transform-origin: 100% 0%; }
+
+            /* Phase 4: Bottom-Right (42% - 60%) */
+            42% { transform: scale(2); transform-origin: 100% 100%; }
+            60% { transform: scale(2); transform-origin: 100% 100%; }
+
+            /* Phase 5: Bottom-Left (62% - 80%) */
+            62% { transform: scale(2); transform-origin: 0% 100%; }
+            80% { transform: scale(2); transform-origin: 0% 100%; }
+
+            /* Loop Back to Phase 1 (Rest) (82% - 100%) */
+            82% { transform: scale(1); transform-origin: 50% 50%; }
+            100% { transform: scale(1); transform-origin: 50% 50%; }
         }
     `;
     document.head.appendChild(style);
