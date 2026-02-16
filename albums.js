@@ -412,8 +412,15 @@ function injectStyles() {
             aspect-ratio: 1.4 / 1;
             max-width: 90vw;
             max-height: 90vh;
-            box-shadow: 0 0 80px rgba(0,0,0,0.8);
             display: flex;
+            /* MODIFIED: Shadow 
+               120px = Higher blur
+               10px  = Slight spread 
+               0.5   = Lower opacity (50%)
+            */
+            box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
+            /* Match the radius here to prevent shadow clipping */
+            border-radius: 24px; 
         }
 
         /* The Image Itself */
@@ -421,7 +428,8 @@ function injectStyles() {
             width: 100%;
             height: 100%;
             object-fit: fill; 
-            border-radius: 7px;
+            /* MODIFIED: Increased corner radius */
+            border-radius: 24px; 
             opacity: 0; 
             transition: opacity 1s ease-in-out;
             will-change: opacity;
