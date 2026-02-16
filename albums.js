@@ -10,7 +10,7 @@
 // --- CONFIGURATION ---
 const CONFIG = {
     CSV_FILENAME: 'applemusic-3.csv',
-    CSV_INTERVAL_MS: 500000, // 5 Minutes (Matches 2x animation cycles of 250s)
+    CSV_INTERVAL_MS: 500000, // 5 Minutes (Matches exactly 2x 250s animation cycles)
     STORE_COUNTRY: 'il', // Israel
     
     // Visual Timing
@@ -48,7 +48,7 @@ export async function init(container) {
     // 1. Reset State
     resetState();
 
-    // 2. Inject CSS (Includes new Animation Keyframes)
+    // 2. Inject CSS
     injectStyles();
 
     // 3. Inject HTML
@@ -124,8 +124,9 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     loader.onload = () => {
         const imgEl = document.getElementById('album-art');
         const bgEl = document.getElementById('bg-layer');
+        const wrapperEl = document.getElementById('art-wrapper');
 
-        if (!imgEl || !bgEl) return; 
+        if (!imgEl || !bgEl || !wrapperEl) return; 
 
         // FADE OUT
         imgEl.style.opacity = '0';
@@ -139,18 +140,18 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
-            // --- ANIMATION LOGIC START ---
-            // 1. Remove animation class to reset state
-            imgEl.classList.remove('csv-animate');
+            // --- ANIMATION RESET LOGIC ---
+            // 1. Clean class to reset animation state
+            wrapperEl.classList.remove('csv-animate');
 
-            // 2. Trigger Reflow (Reset CSS time to 0)
-            void imgEl.offsetWidth; 
+            // 2. Force Reflow (Magic trick to reset CSS clock to 0:00)
+            void wrapperEl.offsetWidth; 
 
-            // 3. Re-apply ONLY if in CSV mode
+            // 3. Re-apply Animation ONLY if in CSV mode
             if (state.currentMode === 'CSV') {
-                imgEl.classList.add('csv-animate');
+                wrapperEl.classList.add('csv-animate');
             }
-            // --- ANIMATION LOGIC END ---
+            // -----------------------------
 
             requestAnimationFrame(() => {
                 // FADE IN
@@ -263,11 +264,11 @@ function fetchAndDisplayLastFm(track, trackIdentifier) {
         }
 
         if (finalImage) {
-            // onSuccess checks state.currentMode to decide whether to animate
-            // Here, we ensure mode is updated properly before call
+            // Ensure mode is set before transition so animation logic knows not to fire
             state.currentMode = 'LASTFM'; 
             performVisualTransition(finalImage, () => {
                 state.displayedLastFmTrack = trackIdentifier;
+                console.log("Switched to Last.fm:", trackIdentifier);
             });
         }
     });
@@ -372,7 +373,7 @@ function cleanupScript(script, cbName) {
     delete window[cbName];
 }
 
-// --- STYLES INJECTOR (UPDATED) ---
+// --- STYLES INJECTOR ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
 
@@ -408,7 +409,9 @@ function injectStyles() {
             will-change: opacity;
         }
 
-        /* Main Album Art Container */
+        /* Main Album Art Container - The "Physical Object" 
+           This element receives the animation class.
+        */
         #art-wrapper {
             position: relative;
             z-index: 10;
@@ -419,8 +422,10 @@ function injectStyles() {
             display: flex;
             box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
             border-radius: 24px; 
-            /* IMPORTANT: Clips the zooming image so it stays inside the frame */
+            /* Clips the image so it fits the border radius during zoom */
             overflow: hidden; 
+            will-change: transform; 
+            transform-origin: center center;
         }
 
         /* The Image Itself */
@@ -428,17 +433,14 @@ function injectStyles() {
             width: 100%;
             height: 100%;
             object-fit: fill; 
-            border-radius: 24px; 
             opacity: 0; 
             transition: opacity 1s ease-in-out;
-            will-change: opacity, transform, transform-origin;
         }
 
         /* --- ANIMATION CLASS --- */
-        /* Only applied in CSV mode via JS */
+        /* Applied to #art-wrapper only in CSV mode */
         .csv-animate {
-            animation-name: panZoomCycle;
-            /* 250s per cycle * 2 iterations = 500s (Matches CSV_INTERVAL_MS) */
+            animation-name: cameraPanCycle;
             animation-duration: 250s; 
             animation-timing-function: ease-in-out;
             animation-iteration-count: 2;
@@ -447,37 +449,38 @@ function injectStyles() {
 
         /* --- KEYFRAMES --- 
            Cycle Duration: 250s 
-           We move 'transform-origin' to create the Pan effect while keeping Scale(2).
-           This avoids complex translate math and works smoothly.
+           Logic: Move the Album Wrapper (scale & translate) to simulate camera movement.
            
-           Timing Map:
+           Math:
            Tween = 5s (2% of 250s)
            Hold  = 45s (18% of 250s)
-           Rest  = 45s (End)
+           
+           Scale(2): 200% size.
+           Translate(25%, 25%): Shifts the wrapper Down/Right so the Top-Left corner is centered.
         */
-        @keyframes panZoomCycle {
-            /* Phase 1: Full Screen Rest (0% - 2% Tween In) */
-            0% { transform: scale(1); transform-origin: 50% 50%; }
+        @keyframes cameraPanCycle {
+            /* Phase 1: Start (Full) -> Tween In (0-2%) */
+            0% { transform: scale(1) translate(0, 0); }
 
             /* Phase 2: Top-Left (2% - 20%) */
-            2% { transform: scale(2); transform-origin: 0% 0%; } 
-            20% { transform: scale(2); transform-origin: 0% 0%; }
+            2% { transform: scale(2) translate(25%, 25%); }
+            20% { transform: scale(2) translate(25%, 25%); }
 
             /* Phase 3: Top-Right (22% - 40%) */
-            22% { transform: scale(2); transform-origin: 100% 0%; }
-            40% { transform: scale(2); transform-origin: 100% 0%; }
+            22% { transform: scale(2) translate(-25%, 25%); }
+            40% { transform: scale(2) translate(-25%, 25%); }
 
             /* Phase 4: Bottom-Right (42% - 60%) */
-            42% { transform: scale(2); transform-origin: 100% 100%; }
-            60% { transform: scale(2); transform-origin: 100% 100%; }
+            42% { transform: scale(2) translate(-25%, -25%); }
+            60% { transform: scale(2) translate(-25%, -25%); }
 
             /* Phase 5: Bottom-Left (62% - 80%) */
-            62% { transform: scale(2); transform-origin: 0% 100%; }
-            80% { transform: scale(2); transform-origin: 0% 100%; }
+            62% { transform: scale(2) translate(25%, -25%); }
+            80% { transform: scale(2) translate(25%, -25%); }
 
-            /* Loop Back to Phase 1 (Rest) (82% - 100%) */
-            82% { transform: scale(1); transform-origin: 50% 50%; }
-            100% { transform: scale(1); transform-origin: 50% 50%; }
+            /* Loop Back to Phase 1 (Full) (82% - 100%) */
+            82% { transform: scale(1) translate(0, 0); }
+            100% { transform: scale(1) translate(0, 0); }
         }
     `;
     document.head.appendChild(style);
