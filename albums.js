@@ -4,13 +4,13 @@
  * 1. Load CSV Data.
  * 2. Check Last.fm.
  * 3. IF playing -> Show Last.fm (Static).
- * 4. IF NOT playing -> Show CSV (Animated Pan/Zoom).
+ * 4. IF NOT playing -> Show CSV (Animated Camera Pan).
  */
 
 // --- CONFIGURATION ---
 const CONFIG = {
     CSV_FILENAME: 'applemusic-3.csv',
-    CSV_INTERVAL_MS: 500000, // 5 Minutes (Matches exactly 2x 250s animation cycles)
+    CSV_INTERVAL_MS: 500000, // 5 Minutes (Matches 2x 250s animation cycles)
     STORE_COUNTRY: 'il', // Israel
     
     // Visual Timing
@@ -140,18 +140,18 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
-            // --- ANIMATION RESET LOGIC ---
-            // 1. Clean class to reset animation state
+            // --- ANIMATION RESET ---
+            // 1. Remove class to stop animation
             wrapperEl.classList.remove('csv-animate');
 
-            // 2. Force Reflow (Magic trick to reset CSS clock to 0:00)
+            // 2. Trigger Reflow (Reset timer to 0)
             void wrapperEl.offsetWidth; 
 
             // 3. Re-apply Animation ONLY if in CSV mode
             if (state.currentMode === 'CSV') {
                 wrapperEl.classList.add('csv-animate');
             }
-            // -----------------------------
+            // -----------------------
 
             requestAnimationFrame(() => {
                 // FADE IN
@@ -264,11 +264,9 @@ function fetchAndDisplayLastFm(track, trackIdentifier) {
         }
 
         if (finalImage) {
-            // Ensure mode is set before transition so animation logic knows not to fire
             state.currentMode = 'LASTFM'; 
             performVisualTransition(finalImage, () => {
                 state.displayedLastFmTrack = trackIdentifier;
-                console.log("Switched to Last.fm:", trackIdentifier);
             });
         }
     });
@@ -373,14 +371,14 @@ function cleanupScript(script, cbName) {
     delete window[cbName];
 }
 
-// --- STYLES INJECTOR ---
+// --- STYLES INJECTOR (UPDATED FOR CORNER SNAPPING) ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
 
     const style = document.createElement('style');
     style.id = 'albums-module-styles';
     style.textContent = `
-        /* Container Setup */
+        /* Container */
         #container {
             position: relative;
             width: 100vw;
@@ -392,7 +390,7 @@ function injectStyles() {
             background-color: #000;
         }
 
-        /* Blurred Background Layer */
+        /* Blurred Background */
         #bg-layer {
             position: absolute;
             top: 0;
@@ -409,9 +407,7 @@ function injectStyles() {
             will-change: opacity;
         }
 
-        /* Main Album Art Container - The "Physical Object" 
-           This element receives the animation class.
-        */
+        /* Main Album Wrapper - The "Camera Object" */
         #art-wrapper {
             position: relative;
             z-index: 10;
@@ -422,13 +418,12 @@ function injectStyles() {
             display: flex;
             box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
             border-radius: 24px; 
-            /* Clips the image so it fits the border radius during zoom */
             overflow: hidden; 
             will-change: transform; 
             transform-origin: center center;
         }
 
-        /* The Image Itself */
+        /* Image */
         #album-art {
             width: 100%;
             height: 100%;
@@ -437,8 +432,7 @@ function injectStyles() {
             transition: opacity 1s ease-in-out;
         }
 
-        /* --- ANIMATION CLASS --- */
-        /* Applied to #art-wrapper only in CSV mode */
+        /* Animation Class */
         .csv-animate {
             animation-name: cameraPanCycle;
             animation-duration: 250s; 
@@ -447,40 +441,38 @@ function injectStyles() {
             animation-fill-mode: forwards;
         }
 
-        /* --- KEYFRAMES --- 
-           Cycle Duration: 250s 
-           Logic: Move the Album Wrapper (scale & translate) to simulate camera movement.
+        /* --- KEYFRAMES EXPLANATION --- 
+           Logic: scale(2) doubles the size.
+           To stick a corner to the screen edge (0 gap), we must translate.
            
-           Math:
-           Tween = 5s (2% of 250s)
-           Hold  = 45s (18% of 250s)
-           
-           Scale(2): 200% size.
-           Translate(25%, 25%): Shifts the wrapper Down/Right so the Top-Left corner is centered.
+           Math: 'calc(50% - 25vw)' 
+           - 50% is half the Wrapper width (in scaled coordinate space, effectively).
+           - 25vw is quarter screen width.
+           - This derived value forces the wrapper edge to align with viewport edge
+             regardless of aspect ratio.
         */
         @keyframes cameraPanCycle {
-            /* Phase 1: Start (Full) -> Tween In (0-2%) */
-            0% { transform: scale(1) translate(0, 0); }
+            /* Phase 1: Full View (Start) */
+            0%, 2% { transform: scale(1) translate(0, 0); }
 
-            /* Phase 2: Top-Left (2% - 20%) */
-            2% { transform: scale(2) translate(25%, 25%); }
-            20% { transform: scale(2) translate(25%, 25%); }
+            /* Phase 2: Top-Left (Stick to TL Corner) */
+            /* Translate X: (50% - 25vw), Y: (50% - 25vh) */
+            4%, 20% { transform: scale(2) translate(calc(50% - 25vw), calc(50% - 25vh)); }
 
-            /* Phase 3: Top-Right (22% - 40%) */
-            22% { transform: scale(2) translate(-25%, 25%); }
-            40% { transform: scale(2) translate(-25%, 25%); }
+            /* Phase 3: Top-Right (Stick to TR Corner) */
+            /* Translate X: (25vw - 50%), Y: (50% - 25vh) */
+            22%, 40% { transform: scale(2) translate(calc(25vw - 50%), calc(50% - 25vh)); }
 
-            /* Phase 4: Bottom-Right (42% - 60%) */
-            42% { transform: scale(2) translate(-25%, -25%); }
-            60% { transform: scale(2) translate(-25%, -25%); }
+            /* Phase 4: Bottom-Right (Stick to BR Corner) */
+            /* Translate X: (25vw - 50%), Y: (25vh - 50%) */
+            42%, 60% { transform: scale(2) translate(calc(25vw - 50%), calc(25vh - 50%)); }
 
-            /* Phase 5: Bottom-Left (62% - 80%) */
-            62% { transform: scale(2) translate(25%, -25%); }
-            80% { transform: scale(2) translate(25%, -25%); }
+            /* Phase 5: Bottom-Left (Stick to BL Corner) */
+            /* Translate X: (50% - 25vw), Y: (25vh - 50%) */
+            62%, 80% { transform: scale(2) translate(calc(50% - 25vw), calc(25vh - 50%)); }
 
-            /* Loop Back to Phase 1 (Full) (82% - 100%) */
-            82% { transform: scale(1) translate(0, 0); }
-            100% { transform: scale(1) translate(0, 0); }
+            /* Loop Back to Full */
+            82%, 100% { transform: scale(1) translate(0, 0); }
         }
     `;
     document.head.appendChild(style);
