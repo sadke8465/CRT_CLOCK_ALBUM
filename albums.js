@@ -255,9 +255,14 @@ async function checkLastFm() {
 }
 
 function fetchAndDisplayLastFm(track, trackIdentifier) {
-    fetchItunesBySearch(track.name, track.artist['#text'], (itunesImageUrl) => {
+    // 1. Get Album Name safely
+    const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
+
+    // 2. Pass Album Name to search
+    fetchItunesBySearch(track.name, track.artist['#text'], albumName, (itunesImageUrl) => {
         let finalImage = itunesImageUrl;
         
+        // Fallback: Use Last.fm image if iTunes failed
         if (!finalImage && track.image) {
             const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
             if (imgObj) finalImage = imgObj['#text'];
@@ -347,10 +352,19 @@ function fetchItunesById(appleId, callback) {
     document.body.appendChild(script);
 }
 
-function fetchItunesBySearch(trackName, artistName, callback) {
+function fetchItunesBySearch(trackName, artistName, albumName, callback) {
     const cbName = 'cb_search_' + Math.floor(Math.random() * 100000);
-    const term = encodeURIComponent(artistName + ' ' + trackName);
+    
+    // BUILD SEARCH QUERY: Artist + Track + Album (if available)
+    let query = artistName + ' ' + trackName;
+    if (albumName) {
+        query += ' ' + albumName;
+    }
+    
+    const term = encodeURIComponent(query);
     const script = document.createElement('script');
+    
+    // entity=song finds the track within the specific album context
     script.src = `https://itunes.apple.com/search?term=${term}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
     
     window[cbName] = function(data) {
