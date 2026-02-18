@@ -1,16 +1,15 @@
 /**
- * ALBUMS MODULE (Smart Zoom Edition)
+ * ALBUMS MODULE (Smart Zoom + CSV Fix)
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing -> Show Last.fm.
- * -> IF playing > 30s: Scan image for faces/contrast -> Smart Pan/Zoom.
+ * 3. IF playing > 30s -> Scan image for faces -> Smart Pan/Zoom.
  * 4. IF NOT playing -> Show CSV (Static Corner Animation).
  */
 
 // --- CONFIGURATION ---
 const CONFIG = {
-    CSV_FILENAME: 'applemusic-3.csv',
+    CSV_FILENAME: 'applemusic-3.csv', // Ensure this file exists
     CSV_INTERVAL_MS: 500000, // 5 Minutes
     STORE_COUNTRY: 'il', 
     
@@ -19,10 +18,10 @@ const CONFIG = {
     BLACK_HOLD_DURATION: 200, 
     
     // Smart Zoom Settings
-    SMART_ZOOM_DELAY: 30000, // Wait 30s before starting
-    SMART_ZOOM_LEVEL: 2.5,   // How deep to zoom
-    TRANSITION_TIME: 5000,   // Time to move between points
-    HOLD_TIME: 20000,        // Time to stay on a point
+    SMART_ZOOM_DELAY: 30000, // Wait 30s before scanning
+    SMART_ZOOM_LEVEL: 2.5,   // 2.5x Zoom (40% crop width)
+    TRANSITION_TIME: 5000,   // 5s Move
+    HOLD_TIME: 20000,        // 20s Hold
     
     // Last.fm Config
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
@@ -39,15 +38,15 @@ let intervals = {
 
 let state = {
     startupDone: false,
-    currentMode: 'CSV',
+    currentMode: 'STARTUP', // Fixed: Was 'CSV', blocking startup
     csvTrackList: [],
     csvIndex: 0,
     
     // Last.fm State
-    displayedLastFmTrack: null,     // The ID of what's on screen
-    lastFmTrackStartTime: 0,        // When did we detect this track?
-    lastFmZoomTriggered: false,     // Have we started the smart zoom yet?
-    activeAnimation: null,          // Holds the WAAPI animation object
+    displayedLastFmTrack: null,     
+    lastFmTrackStartTime: 0,        
+    lastFmZoomTriggered: false,     
+    activeAnimation: null,          
     
     lastFmActivityTime: Date.now(),
     isTransitioning: false
@@ -60,6 +59,7 @@ export async function init(container) {
     resetState();
     injectStyles();
 
+    // Added crossorigin="anonymous" to allow canvas analysis
     container.innerHTML = `
         <div id="container">
             <div id="bg-layer"></div>
@@ -82,14 +82,14 @@ export function cleanup() {
     console.log("[Albums] Cleaning up...");
     if (intervals.lastFm) clearInterval(intervals.lastFm);
     if (intervals.csv) clearInterval(intervals.csv);
-    stopSmartAnimation(); // Ensure no lingering animations
+    stopSmartAnimation(); 
     resetState();
 }
 
 function resetState() {
     state = {
         startupDone: false,
-        currentMode: 'CSV',
+        currentMode: 'STARTUP', // Ensures we don't block the first CSV load
         csvTrackList: [],
         csvIndex: 0,
         displayedLastFmTrack: null,
@@ -122,7 +122,7 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     stopSmartAnimation();
 
     const loader = new Image();
-    loader.crossOrigin = "Anonymous"; // Important for canvas analysis
+    loader.crossOrigin = "Anonymous"; // Critical for analysis
     loader.src = imageUrl;
 
     loader.onload = () => {
@@ -143,15 +143,16 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
-            // --- CSS ANIMATION RESET (For CSV Mode) ---
+            // --- CSS ANIMATION RESET ---
             wrapperEl.classList.remove('csv-animate');
-            void wrapperEl.offsetWidth; // Reflow
+            void wrapperEl.offsetWidth; // Force Reflow
             
-            // Only use CSS animation if in CSV mode
+            // Apply CSV Animation ONLY if we are in CSV mode
             if (state.currentMode === 'CSV') {
+                wrapperEl.style.transform = ''; // Clear any leftover JS transforms
                 wrapperEl.classList.add('csv-animate');
             }
-            // ------------------------------------------
+            // ---------------------------
 
             requestAnimationFrame(() => {
                 // FADE IN
@@ -177,14 +178,17 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
 
 // --- HELPER: START CSV MODE ---
 function startCsvMode() {
-    if (state.currentMode === 'CSV') return; // Already here
+    // Prevent redundant restarts, but allow if recovering from startup
+    if (state.currentMode === 'CSV' && intervals.csv) return;
+
     console.log("Starting CSV Mode");
     
     stopSmartAnimation(); // Kill any Last.fm zooms
     state.currentMode = 'CSV';
     
     if (intervals.csv) clearInterval(intervals.csv);
-    triggerCsvUpdate();
+    
+    triggerCsvUpdate(); // Show first image immediately
     intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
 }
 
@@ -201,7 +205,7 @@ async function checkLastFm() {
             const trackIdentifier = track.name + ' - ' + track.artist['#text'];
             const isNowPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
 
-            // --- STARTUP ---
+            // --- STARTUP LOGIC ---
             if (!state.startupDone) {
                 state.startupDone = true;
                 if (isNowPlaying) {
@@ -212,26 +216,26 @@ async function checkLastFm() {
                 return; 
             }
 
-            // --- RUNTIME ---
+            // --- RUNTIME LOGIC ---
             if (isNowPlaying) {
                 state.lastFmActivityTime = Date.now();
                 
-                // If we were in CSV, switch to LastFM
+                // Switch from CSV to Last.fm
                 if (state.currentMode === 'CSV') {
                     if (intervals.csv) clearInterval(intervals.csv);
                     switchToLastFm(track, trackIdentifier);
                 } 
-                // If same track, check timer for Smart Zoom
+                // Track matches? Check Zoom Timer
                 else if (trackIdentifier === state.displayedLastFmTrack) {
                     checkSmartZoomTimer();
                 }
-                // If new track, switch
+                // New Track? Switch
                 else if (trackIdentifier !== state.displayedLastFmTrack) {
                     switchToLastFm(track, trackIdentifier);
                 }
 
             } else {
-                // Not playing. Timeout?
+                // Not playing? Check Timeout
                 if (state.currentMode === 'LASTFM') {
                     if (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS) {
                         startCsvMode();
@@ -251,7 +255,7 @@ async function checkLastFm() {
 function switchToLastFm(track, trackIdentifier) {
     state.currentMode = 'LASTFM';
     
-    // Reset Timer & Zoom Flags
+    // Reset Zoom State
     state.lastFmTrackStartTime = Date.now();
     state.lastFmZoomTriggered = false;
     stopSmartAnimation();
@@ -276,16 +280,14 @@ function switchToLastFm(track, trackIdentifier) {
 // --- SMART ZOOM LOGIC ---
 
 function checkSmartZoomTimer() {
-    // 1. Basic Checks
     if (state.currentMode !== 'LASTFM') return;
-    if (state.lastFmZoomTriggered) return; // Already done
+    if (state.lastFmZoomTriggered) return;
     if (state.isTransitioning) return;
 
-    // 2. Check Time (30 seconds)
+    // Trigger after 30 seconds
     const timePlaying = Date.now() - state.lastFmTrackStartTime;
     if (timePlaying > CONFIG.SMART_ZOOM_DELAY) {
         state.lastFmZoomTriggered = true;
-        console.log("Triggering Smart Zoom Analysis...");
         runSmartZoomSequence();
     }
 }
@@ -295,80 +297,50 @@ function runSmartZoomSequence() {
     const wrapperEl = document.getElementById('art-wrapper');
     if (!imgEl || !wrapperEl) return;
 
-    // 1. Analyze the image to find the 3 points
+    console.log("Running Smart Zoom Analysis...");
+
+    // 1. Analyze Image (Triple Crop + Face Detection)
     const points = analyzeImageForCrops(imgEl);
     if (!points || points.length < 3) {
-        console.log("Not enough interest points found. Skipping zoom.");
+        console.log("Analysis failed or image too uniform. Skipping.");
         return;
     }
 
-    console.log("Starting Smart Zoom Sequence with points:", points);
-
-    // 2. Construct the Keyframes
-    // We use WAAPI (Web Animations API) for performance and dynamic values
-    
-    // Helper to calculate translate values for a centered zoom
-    // We want Point (px, py) to be in the center of the container at Scale S
-    // The wrapper is already centered.
+    // 2. Build Keyframes for Web Animations API
     const getTransform = (point) => {
-        // Point x/y are 0-100 percentages of the image
-        // To center (px, py), we translate the image.
-        // At Scale 1, center is 50,50. 
-        // Logic: We shift the image opposite to the point's location relative to center.
-        // And we scale the shift by the zoom factor.
-        
-        // Example: Point is at 20% (Left). Center is 50%. Diff is 30%. 
-        // We need to move image Right (+) by 30% * Scale.
+        // Calculate shift needed to center the point at zoom level
         const scale = CONFIG.SMART_ZOOM_LEVEL;
-        const shiftX = (50 - point.x) * (scale / 1.5); // 1.5 is a dampener to prevent edge clipping
+        const shiftX = (50 - point.x) * (scale / 1.5); 
         const shiftY = (50 - point.y) * (scale / 1.5);
-        
         return `scale(${scale}) translate(${shiftX}%, ${shiftY}%)`;
     };
 
-    const T_TRANSITION = CONFIG.TRANSITION_TIME;
-    const T_HOLD = CONFIG.HOLD_TIME;
+    const T_MOVE = CONFIG.TRANSITION_TIME; // 5s
+    const T_HOLD = CONFIG.HOLD_TIME;       // 20s
     
-    // Timeline construction (Cumulative Time)
-    // 0 -> P1 (Move)
-    // P1 (Hold)
-    // P1 -> P2 (Move)
-    // P2 (Hold)
-    // P2 -> P3 (Move)
-    // P3 (Hold)
-    // P3 -> Original (Move)
+    // Sequence: Full -> P1 -> Hold -> P2 -> Hold -> P3 -> Hold -> Full
+    // Total Time: (3 Moves + 1 Return) + (3 Holds) = 4*5s + 3*20s = 80s total
+    const totalDuration = (T_MOVE * 4) + (T_HOLD * 3);
 
     const keyframes = [
-        // Start (Current state: Full view)
         { transform: 'scale(1) translate(0, 0)', offset: 0 },
         
-        // Move to Point 1
-        { transform: getTransform(points[0]), offset: T_TRANSITION / 80000 }, 
+        // Point 1
+        { transform: getTransform(points[0]), offset: T_MOVE / totalDuration }, 
+        { transform: getTransform(points[0]), offset: (T_MOVE + T_HOLD) / totalDuration },
         
-        // Hold Point 1
-        { transform: getTransform(points[0]), offset: (T_TRANSITION + T_HOLD) / 80000 },
+        // Point 2
+        { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD) / totalDuration },
+        { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD * 2) / totalDuration },
         
-        // Move to Point 2
-        { transform: getTransform(points[1]), offset: (T_TRANSITION * 2 + T_HOLD) / 80000 },
+        // Point 3
+        { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 2) / totalDuration },
+        { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 3) / totalDuration },
         
-        // Hold Point 2
-        { transform: getTransform(points[1]), offset: (T_TRANSITION * 2 + T_HOLD * 2) / 80000 },
-        
-        // Move to Point 3
-        { transform: getTransform(points[2]), offset: (T_TRANSITION * 3 + T_HOLD * 2) / 80000 },
-        
-        // Hold Point 3
-        { transform: getTransform(points[2]), offset: (T_TRANSITION * 3 + T_HOLD * 3) / 80000 },
-        
-        // Return to Full
+        // Return
         { transform: 'scale(1) translate(0, 0)', offset: 1 }
     ];
 
-    // Total Duration: 3 Transitions (5s) + 1 Return (5s) + 3 Holds (20s) = 80s
-    const totalDuration = (T_TRANSITION * 4) + (T_HOLD * 3);
-
-    // 3. Play Animation
-    // We animate the WRAPPER, not the image, to keep it consistent
     state.activeAnimation = wrapperEl.animate(keyframes, {
         duration: totalDuration,
         fill: 'forwards',
@@ -376,7 +348,6 @@ function runSmartZoomSequence() {
     });
 
     state.activeAnimation.onfinish = () => {
-        console.log("Smart Zoom Cycle Complete.");
         state.activeAnimation = null;
     };
 }
@@ -386,60 +357,53 @@ function stopSmartAnimation() {
         state.activeAnimation.cancel();
         state.activeAnimation = null;
     }
-    // Also ensure wrapper is clean
     const wrapper = document.getElementById('art-wrapper');
-    if (wrapper) {
-        // We don't remove csv-animate here because this function is called during CSV mode too
-        // But we can ensure no WAAPI transform lingers
-        wrapper.style.transform = '';
-    }
+    if (wrapper) wrapper.style.transform = ''; // Clean up
 }
 
-// --- THE NATIVE SCANNER (TRIPLE CROP + FACES) ---
+// --- THE NATIVE SCANNER (Triple Crop + Face Priority) ---
 function analyzeImageForCrops(imgElement) {
-    // 1. Create offline canvas
-    const RES = 150; // Low res for speed
+    const RES = 150;
     const canvas = document.createElement('canvas');
     canvas.width = RES;
     canvas.height = RES;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Draw image
     try {
         ctx.drawImage(imgElement, 0, 0, RES, RES);
     } catch(e) {
-        console.warn("CORS issue likely prevented image analysis", e);
+        console.warn("CORS/Security error in analysis:", e);
         return null;
     }
 
     const pixels = ctx.getImageData(0, 0, RES, RES).data;
     const scores = new Float32Array(RES * RES);
 
-    // 2. Build Score Map (Contrast + Faces)
+    // 1. Build Score Map
     for (let i = 0; i < pixels.length; i += 4) {
         const r = pixels[i];
         const g = pixels[i+1];
         const b = pixels[i+2];
 
-        // A. Edge Detection
+        // Contrast
         let edge = 0;
         if ((i/4) % RES < RES - 1) {
             edge = Math.abs(r - pixels[i+4]) + Math.abs(g - pixels[i+5]) + Math.abs(b - pixels[i+6]);
         }
 
-        // B. Skin Tone Heuristic (Face Priority)
+        // Skin Tone Heuristic
         let isSkin = 0;
         if (r > 60 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15 && r - Math.min(g, b) > 15) {
             isSkin = 1;
         }
 
         let pixelScore = edge;
-        if (isSkin) pixelScore += 255; // Massive bonus for faces
+        if (isSkin) pixelScore += 255; // Bonus for faces
         
         scores[i/4] = pixelScore;
     }
 
-    // 3. Find 3 Distinct Crops
+    // 2. Find 3 Distinct Crops
     const cropSize = Math.floor(RES / CONFIG.SMART_ZOOM_LEVEL);
     const results = [];
 
@@ -448,11 +412,10 @@ function analyzeImageForCrops(imgElement) {
         let bestX = 0;
         let bestY = 0;
 
-        // Slide window
         for (let y = 0; y <= RES - cropSize; y += 2) {
             for (let x = 0; x <= RES - cropSize; x += 2) {
                 let currentTotal = 0;
-                // Sampling optimization
+                // Optimization: Sample every 5th pixel
                 for (let sy = 0; sy < cropSize; sy += 5) {
                     for (let sx = 0; sx < cropSize; sx += 5) {
                         currentTotal += scores[(y + sy) * RES + (x + sx)];
@@ -466,13 +429,13 @@ function analyzeImageForCrops(imgElement) {
             }
         }
 
-        // Store center point in percentages
+        // Convert center point to %
         results.push({
             x: ((bestX + cropSize/2) / RES) * 100,
             y: ((bestY + cropSize/2) / RES) * 100
         });
 
-        // Inhibition (Burn area)
+        // Burn area (Inhibition)
         for (let by = bestY; by < bestY + cropSize; by++) {
             for (let bx = bestX; bx < bestX + cropSize; bx++) {
                 if (by < RES && bx < RES) scores[by * RES + bx] = -99999;
@@ -482,7 +445,6 @@ function analyzeImageForCrops(imgElement) {
 
     return results;
 }
-
 
 // --- CSV / ITUNES HELPERS ---
 function shuffleArray(array) {
@@ -532,7 +494,7 @@ function triggerCsvUpdate() {
     state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
 }
 
-// --- API HELPERS (JSONP) ---
+// --- API HELPERS ---
 function fetchItunesById(appleId, callback) {
     const cbName = 'cb_id_' + Math.floor(Math.random() * 100000);
     const script = document.createElement('script');
@@ -579,39 +541,29 @@ function injectStyles() {
     style.textContent = `
         #container {
             position: relative;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-            background-color: #000;
+            width: 100vw; height: 100vh;
+            display: flex; justify-content: center; align-items: center;
+            overflow: hidden; background-color: #000;
         }
         #bg-layer {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background-size: cover; background-position: center;
             filter: blur(120px) brightness(0.9);
-            transform: scale(1.4);
-            z-index: 1; opacity: 0; transition: opacity 1s;
+            transform: scale(1.4); z-index: 1; opacity: 0; transition: opacity 1s;
         }
         #art-wrapper {
-            position: relative;
-            z-index: 10;
-            height: 90vh; 
-            aspect-ratio: 1.4 / 1;
+            position: relative; z-index: 10;
+            height: 90vh; aspect-ratio: 1.4 / 1;
             max-width: 90vw; max-height: 90vh;
             display: flex;
             box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
-            border-radius: 24px; 
-            overflow: hidden; 
-            /* Remove standard transition to allow WAAPI/Keyframes to take over */
+            border-radius: 24px; overflow: hidden; 
         }
         #album-art {
             width: 100%; height: 100%; object-fit: fill; 
             opacity: 0; transition: opacity 1s;
         }
-        /* CSV Animation Only */
+        /* CSV Animation */
         .csv-animate {
             animation: cameraPanCycle 250s ease-in-out 2 forwards;
         }
