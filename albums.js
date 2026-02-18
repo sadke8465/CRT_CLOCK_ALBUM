@@ -1,9 +1,9 @@
 /**
- * ALBUMS MODULE (Smart Zoom + Custom Easing)
+ * ALBUMS MODULE (Full-Screen Immersion Edition)
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing > 30s -> Scan image -> Smart Pan/Zoom (Clamped & Smoothed).
+ * 3. IF playing > 30s -> Scan image -> Full Screen Zoom/Pan (No Backgrounds).
  * 4. IF NOT playing -> Show CSV (Static Corner Animation).
  */
 
@@ -19,7 +19,7 @@ const CONFIG = {
     
     // Smart Zoom Settings
     SMART_ZOOM_DELAY: 30000, 
-    SMART_ZOOM_LEVEL: 2.5,   
+    ZOOM_DEPTH: 2.0,         // How much CLOSER to get after filling the screen
     TRANSITION_TIME: 5000,   
     HOLD_TIME: 20000,        
     
@@ -254,7 +254,7 @@ function switchToLastFm(track, trackIdentifier) {
     });
 }
 
-// --- SMART ZOOM LOGIC (CLAMPED & SMOOTH) ---
+// --- SMART ZOOM LOGIC (FULL SCREEN & VIEWPORT AWARE) ---
 
 function checkSmartZoomTimer() {
     if (state.currentMode !== 'LASTFM') return;
@@ -281,18 +281,51 @@ function runSmartZoomSequence() {
         return;
     }
 
+    // --- MATH: Calculate Scale to COVER Screen ---
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const rect = wrapperEl.getBoundingClientRect();
+
+    // 1. Minimum Scale needed to ensure NO background is visible
+    // We compare Screen Aspect vs Image Aspect
+    const scaleToCoverX = winW / rect.width;
+    const scaleToCoverY = winH / rect.height;
+    
+    // We must take the LARGER of the two to ensure full coverage
+    const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05; // 1.05 buffer for safety
+
+    // 2. Target Scale = Cover Scale * Zoom Depth
+    // This ensures we are always strictly larger than the screen
+    const targetScale = minCoverScale * CONFIG.ZOOM_DEPTH;
+
+    console.log(`Screen: ${winW}x${winH}, Wrapper: ${rect.width}x${rect.height}`);
+    console.log(`Min Cover Scale: ${minCoverScale}, Target Scale: ${targetScale}`);
+
     const getTransform = (point) => {
-        const scale = CONFIG.SMART_ZOOM_LEVEL;
+        // Point x/y are percentages (0-100) relative to image top-left
+        // Center of image is 50, 50
         
-        let shiftX = (50 - point.x) * scale;
-        let shiftY = (50 - point.y) * scale;
+        // 1. Calculate the offset from center in PIXELS (at unscaled size)
+        // If point is at 20%, offset is (50 - 20) = 30% positive shift
+        const shiftX_pct = 50 - point.x;
+        const shiftY_pct = 50 - point.y;
         
-        const maxShift = 50 * (scale - 1);
+        // Convert to pixels at target scale
+        let transX = (shiftX_pct / 100) * rect.width * targetScale;
+        let transY = (shiftY_pct / 100) * rect.height * targetScale;
+
+        // 2. CLAMP TRANSLATION
+        // We must not translate so far that the edge of the image enters the viewport.
+        // Max translation allowed = (ScaledImageSize - ScreenSize) / 2
         
-        shiftX = Math.max(-maxShift, Math.min(maxShift, shiftX));
-        shiftY = Math.max(-maxShift, Math.min(maxShift, shiftY));
-        
-        return `scale(${scale}) translate(${shiftX}%, ${shiftY}%)`;
+        const maxTransX = (rect.width * targetScale - winW) / 2;
+        const maxTransY = (rect.height * targetScale - winH) / 2;
+
+        // Clamp it
+        transX = Math.max(-maxTransX, Math.min(maxTransX, transX));
+        transY = Math.max(-maxTransY, Math.min(maxTransY, transY));
+
+        return `translate(${transX}px, ${transY}px) scale(${targetScale})`;
     };
 
     const T_MOVE = CONFIG.TRANSITION_TIME; 
@@ -300,7 +333,7 @@ function runSmartZoomSequence() {
     const totalDuration = (T_MOVE * 4) + (T_HOLD * 3);
 
     const keyframes = [
-        { transform: 'scale(1) translate(0, 0)', offset: 0 },
+        { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
         
         // P1
         { transform: getTransform(points[0]), offset: T_MOVE / totalDuration }, 
@@ -315,13 +348,12 @@ function runSmartZoomSequence() {
         { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 3) / totalDuration },
         
         // Return
-        { transform: 'scale(1) translate(0, 0)', offset: 1 }
+        { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
     ];
 
     state.activeAnimation = wrapperEl.animate(keyframes, {
         duration: totalDuration,
         fill: 'forwards',
-        // CHANGED: Custom cubic-bezier for "buttery smooth" start/end
         easing: 'cubic-bezier(0.65, 0, 0.35, 1)' 
     });
 
@@ -339,7 +371,7 @@ function stopSmartAnimation() {
     if (wrapper) wrapper.style.transform = ''; 
 }
 
-// --- SCANNER (Unchanged) ---
+// --- SCANNER (Calculates based on IMAGE ONLY) ---
 function analyzeImageForCrops(imgElement) {
     const RES = 150;
     const canvas = document.createElement('canvas');
@@ -348,6 +380,7 @@ function analyzeImageForCrops(imgElement) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
     try {
+        // This draws the raw image to canvas, ignoring screen layout/backgrounds
         ctx.drawImage(imgElement, 0, 0, RES, RES);
     } catch(e) {
         return null;
@@ -376,7 +409,8 @@ function analyzeImageForCrops(imgElement) {
         scores[i/4] = pixelScore;
     }
 
-    const cropSize = Math.floor(RES / CONFIG.SMART_ZOOM_LEVEL);
+    // 1.5 is purely used for finding density, not display zoom
+    const cropSize = Math.floor(RES / 1.5); 
     const results = [];
 
     for (let k = 0; k < 3; k++) {
