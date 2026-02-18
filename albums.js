@@ -1,27 +1,34 @@
 /**
- * ALBUMS MODULE
+ * ALBUMS MODULE (Smart Zoom Edition)
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing -> Show Last.fm (Static).
- * 4. IF NOT playing -> Show CSV (Animated Camera Pan).
+ * 3. IF playing -> Show Last.fm.
+ * -> IF playing > 30s: Scan image for faces/contrast -> Smart Pan/Zoom.
+ * 4. IF NOT playing -> Show CSV (Static Corner Animation).
  */
 
 // --- CONFIGURATION ---
 const CONFIG = {
     CSV_FILENAME: 'applemusic-3.csv',
-    CSV_INTERVAL_MS: 500000, // 5 Minutes (Matches 2x 250s animation cycles)
-    STORE_COUNTRY: 'il', // Israel
+    CSV_INTERVAL_MS: 500000, // 5 Minutes
+    STORE_COUNTRY: 'il', 
     
     // Visual Timing
     FADE_DURATION: 700, 
     BLACK_HOLD_DURATION: 200, 
     
+    // Smart Zoom Settings
+    SMART_ZOOM_DELAY: 30000, // Wait 30s before starting
+    SMART_ZOOM_LEVEL: 2.5,   // How deep to zoom
+    TRANSITION_TIME: 5000,   // Time to move between points
+    HOLD_TIME: 20000,        // Time to stay on a point
+    
     // Last.fm Config
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
     LAST_FM_USER: 'Noamsadi95',
     LAST_FM_POLL_INTERVAL: 5000, 
-    LAST_FM_TIMEOUT_MS: 20 * 60 * 1000 // 20 Minutes
+    LAST_FM_TIMEOUT_MS: 20 * 60 * 1000 
 };
 
 // --- STATE MANAGEMENT ---
@@ -35,7 +42,13 @@ let state = {
     currentMode: 'CSV',
     csvTrackList: [],
     csvIndex: 0,
-    displayedLastFmTrack: null,
+    
+    // Last.fm State
+    displayedLastFmTrack: null,     // The ID of what's on screen
+    lastFmTrackStartTime: 0,        // When did we detect this track?
+    lastFmZoomTriggered: false,     // Have we started the smart zoom yet?
+    activeAnimation: null,          // Holds the WAAPI animation object
+    
     lastFmActivityTime: Date.now(),
     isTransitioning: false
 };
@@ -44,46 +57,32 @@ let state = {
 
 export async function init(container) {
     console.log("[Albums] Initializing...");
-    
-    // 1. Reset State
     resetState();
-
-    // 2. Inject CSS
     injectStyles();
 
-    // 3. Inject HTML
     container.innerHTML = `
         <div id="container">
             <div id="bg-layer"></div>
             <div id="art-wrapper">
-                <img id="album-art" src="" alt="" />
+                <img id="album-art" src="" alt="" crossorigin="anonymous" />
             </div>
-            
-            <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute; top:0; left:0;">
+            <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute;">
                 <source src="data:video/mp4;base64,AAAAHGZ0eXBNNEVAAAAAAAEAAAAAAABtZGF0AAAAEAAACAAAABAAAAA=" type="video/mp4">
             </video>
         </div>
     `;
 
-    // 4. Start Logic
     requestWakeLock();
-    
-    // Wait for CSV to be parsed BEFORE checking Last.fm
     await loadCSV(); 
-    
-    // Check Last.fm immediately to decide startup path
     checkLastFm(); 
-
-    // Start Polling
     intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
 }
 
 export function cleanup() {
     console.log("[Albums] Cleaning up...");
-    
     if (intervals.lastFm) clearInterval(intervals.lastFm);
     if (intervals.csv) clearInterval(intervals.csv);
-    
+    stopSmartAnimation(); // Ensure no lingering animations
     resetState();
 }
 
@@ -94,6 +93,9 @@ function resetState() {
         csvTrackList: [],
         csvIndex: 0,
         displayedLastFmTrack: null,
+        lastFmTrackStartTime: 0,
+        lastFmZoomTriggered: false,
+        activeAnimation: null,
         lastFmActivityTime: Date.now(),
         isTransitioning: false
     };
@@ -104,12 +106,10 @@ function resetState() {
 
 async function requestWakeLock() {
     try {
-        if ('wakeLock' in navigator) {
-            await navigator.wakeLock.request('screen');
-        }
+        if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
     } catch (err) {
         const vid = document.getElementById('wake-video');
-        if(vid) vid.play().catch(e => console.log(e));
+        if(vid) vid.play().catch(e => {});
     }
 }
 
@@ -118,7 +118,11 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     if (state.isTransitioning) return false; 
     state.isTransitioning = true;
 
+    // 1. STOP any running Smart Animation immediately
+    stopSmartAnimation();
+
     const loader = new Image();
+    loader.crossOrigin = "Anonymous"; // Important for canvas analysis
     loader.src = imageUrl;
 
     loader.onload = () => {
@@ -132,7 +136,6 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
         imgEl.style.opacity = '0';
         bgEl.style.opacity = '0';
 
-        // WAIT
         setTimeout(() => {
             if (!document.getElementById('album-art')) return;
 
@@ -140,18 +143,15 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
-            // --- ANIMATION RESET ---
-            // 1. Remove class to stop animation
+            // --- CSS ANIMATION RESET (For CSV Mode) ---
             wrapperEl.classList.remove('csv-animate');
-
-            // 2. Trigger Reflow (Reset timer to 0)
-            void wrapperEl.offsetWidth; 
-
-            // 3. Re-apply Animation ONLY if in CSV mode
+            void wrapperEl.offsetWidth; // Reflow
+            
+            // Only use CSS animation if in CSV mode
             if (state.currentMode === 'CSV') {
                 wrapperEl.classList.add('csv-animate');
             }
-            // -----------------------
+            // ------------------------------------------
 
             requestAnimationFrame(() => {
                 // FADE IN
@@ -177,16 +177,14 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
 
 // --- HELPER: START CSV MODE ---
 function startCsvMode() {
+    if (state.currentMode === 'CSV') return; // Already here
     console.log("Starting CSV Mode");
+    
+    stopSmartAnimation(); // Kill any Last.fm zooms
     state.currentMode = 'CSV';
     
-    // Clear existing CSV interval
     if (intervals.csv) clearInterval(intervals.csv);
-    
-    // Trigger first image immediately
     triggerCsvUpdate();
-    
-    // Start interval
     intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
 }
 
@@ -203,43 +201,39 @@ async function checkLastFm() {
             const trackIdentifier = track.name + ' - ' + track.artist['#text'];
             const isNowPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
 
-            // --- STARTUP LOGIC ---
+            // --- STARTUP ---
             if (!state.startupDone) {
                 state.startupDone = true;
-
                 if (isNowPlaying) {
-                    console.log("Startup: Track playing. Using Last.fm.");
-                    state.lastFmActivityTime = Date.now();
-                    state.displayedLastFmTrack = trackIdentifier; 
-                    fetchAndDisplayLastFm(track, trackIdentifier);
+                    switchToLastFm(track, trackIdentifier);
                 } else {
-                    console.log("Startup: No track playing. Defaulting to CSV.");
                     startCsvMode();
                 }
                 return; 
             }
 
-            // --- STANDARD RUNTIME LOGIC ---
+            // --- RUNTIME ---
             if (isNowPlaying) {
-                // SCENARIO 1: A Track is Playing
                 state.lastFmActivityTime = Date.now();
                 
-                // Switch mode if needed
+                // If we were in CSV, switch to LastFM
                 if (state.currentMode === 'CSV') {
-                     if (intervals.csv) clearInterval(intervals.csv);
-                     state.currentMode = 'LASTFM';
+                    if (intervals.csv) clearInterval(intervals.csv);
+                    switchToLastFm(track, trackIdentifier);
+                } 
+                // If same track, check timer for Smart Zoom
+                else if (trackIdentifier === state.displayedLastFmTrack) {
+                    checkSmartZoomTimer();
                 }
-
-                if (trackIdentifier !== state.displayedLastFmTrack) {
-                    fetchAndDisplayLastFm(track, trackIdentifier);
+                // If new track, switch
+                else if (trackIdentifier !== state.displayedLastFmTrack) {
+                    switchToLastFm(track, trackIdentifier);
                 }
 
             } else {
-                // SCENARIO 2: Paused / Stopped
+                // Not playing. Timeout?
                 if (state.currentMode === 'LASTFM') {
-                    const timeDiff = Date.now() - state.lastFmActivityTime;
-                    if (timeDiff > CONFIG.LAST_FM_TIMEOUT_MS) {
-                        console.log("Timeout passed. Reverting to CSV.");
+                    if (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS) {
                         startCsvMode();
                     }
                 }
@@ -254,22 +248,24 @@ async function checkLastFm() {
     }
 }
 
-function fetchAndDisplayLastFm(track, trackIdentifier) {
-    // 1. Get Album Name safely
+function switchToLastFm(track, trackIdentifier) {
+    state.currentMode = 'LASTFM';
+    
+    // Reset Timer & Zoom Flags
+    state.lastFmTrackStartTime = Date.now();
+    state.lastFmZoomTriggered = false;
+    stopSmartAnimation();
+
     const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
 
-    // 2. Pass Album Name to search
     fetchItunesBySearch(track.name, track.artist['#text'], albumName, (itunesImageUrl) => {
         let finalImage = itunesImageUrl;
-        
-        // Fallback: Use Last.fm image if iTunes failed
         if (!finalImage && track.image) {
             const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
             if (imgObj) finalImage = imgObj['#text'];
         }
 
         if (finalImage) {
-            state.currentMode = 'LASTFM'; 
             performVisualTransition(finalImage, () => {
                 state.displayedLastFmTrack = trackIdentifier;
             });
@@ -277,7 +273,218 @@ function fetchAndDisplayLastFm(track, trackIdentifier) {
     });
 }
 
-// --- CSV / ITUNES LOGIC ---
+// --- SMART ZOOM LOGIC ---
+
+function checkSmartZoomTimer() {
+    // 1. Basic Checks
+    if (state.currentMode !== 'LASTFM') return;
+    if (state.lastFmZoomTriggered) return; // Already done
+    if (state.isTransitioning) return;
+
+    // 2. Check Time (30 seconds)
+    const timePlaying = Date.now() - state.lastFmTrackStartTime;
+    if (timePlaying > CONFIG.SMART_ZOOM_DELAY) {
+        state.lastFmZoomTriggered = true;
+        console.log("Triggering Smart Zoom Analysis...");
+        runSmartZoomSequence();
+    }
+}
+
+function runSmartZoomSequence() {
+    const imgEl = document.getElementById('album-art');
+    const wrapperEl = document.getElementById('art-wrapper');
+    if (!imgEl || !wrapperEl) return;
+
+    // 1. Analyze the image to find the 3 points
+    const points = analyzeImageForCrops(imgEl);
+    if (!points || points.length < 3) {
+        console.log("Not enough interest points found. Skipping zoom.");
+        return;
+    }
+
+    console.log("Starting Smart Zoom Sequence with points:", points);
+
+    // 2. Construct the Keyframes
+    // We use WAAPI (Web Animations API) for performance and dynamic values
+    
+    // Helper to calculate translate values for a centered zoom
+    // We want Point (px, py) to be in the center of the container at Scale S
+    // The wrapper is already centered.
+    const getTransform = (point) => {
+        // Point x/y are 0-100 percentages of the image
+        // To center (px, py), we translate the image.
+        // At Scale 1, center is 50,50. 
+        // Logic: We shift the image opposite to the point's location relative to center.
+        // And we scale the shift by the zoom factor.
+        
+        // Example: Point is at 20% (Left). Center is 50%. Diff is 30%. 
+        // We need to move image Right (+) by 30% * Scale.
+        const scale = CONFIG.SMART_ZOOM_LEVEL;
+        const shiftX = (50 - point.x) * (scale / 1.5); // 1.5 is a dampener to prevent edge clipping
+        const shiftY = (50 - point.y) * (scale / 1.5);
+        
+        return `scale(${scale}) translate(${shiftX}%, ${shiftY}%)`;
+    };
+
+    const T_TRANSITION = CONFIG.TRANSITION_TIME;
+    const T_HOLD = CONFIG.HOLD_TIME;
+    
+    // Timeline construction (Cumulative Time)
+    // 0 -> P1 (Move)
+    // P1 (Hold)
+    // P1 -> P2 (Move)
+    // P2 (Hold)
+    // P2 -> P3 (Move)
+    // P3 (Hold)
+    // P3 -> Original (Move)
+
+    const keyframes = [
+        // Start (Current state: Full view)
+        { transform: 'scale(1) translate(0, 0)', offset: 0 },
+        
+        // Move to Point 1
+        { transform: getTransform(points[0]), offset: T_TRANSITION / 80000 }, 
+        
+        // Hold Point 1
+        { transform: getTransform(points[0]), offset: (T_TRANSITION + T_HOLD) / 80000 },
+        
+        // Move to Point 2
+        { transform: getTransform(points[1]), offset: (T_TRANSITION * 2 + T_HOLD) / 80000 },
+        
+        // Hold Point 2
+        { transform: getTransform(points[1]), offset: (T_TRANSITION * 2 + T_HOLD * 2) / 80000 },
+        
+        // Move to Point 3
+        { transform: getTransform(points[2]), offset: (T_TRANSITION * 3 + T_HOLD * 2) / 80000 },
+        
+        // Hold Point 3
+        { transform: getTransform(points[2]), offset: (T_TRANSITION * 3 + T_HOLD * 3) / 80000 },
+        
+        // Return to Full
+        { transform: 'scale(1) translate(0, 0)', offset: 1 }
+    ];
+
+    // Total Duration: 3 Transitions (5s) + 1 Return (5s) + 3 Holds (20s) = 80s
+    const totalDuration = (T_TRANSITION * 4) + (T_HOLD * 3);
+
+    // 3. Play Animation
+    // We animate the WRAPPER, not the image, to keep it consistent
+    state.activeAnimation = wrapperEl.animate(keyframes, {
+        duration: totalDuration,
+        fill: 'forwards',
+        easing: 'ease-in-out'
+    });
+
+    state.activeAnimation.onfinish = () => {
+        console.log("Smart Zoom Cycle Complete.");
+        state.activeAnimation = null;
+    };
+}
+
+function stopSmartAnimation() {
+    if (state.activeAnimation) {
+        state.activeAnimation.cancel();
+        state.activeAnimation = null;
+    }
+    // Also ensure wrapper is clean
+    const wrapper = document.getElementById('art-wrapper');
+    if (wrapper) {
+        // We don't remove csv-animate here because this function is called during CSV mode too
+        // But we can ensure no WAAPI transform lingers
+        wrapper.style.transform = '';
+    }
+}
+
+// --- THE NATIVE SCANNER (TRIPLE CROP + FACES) ---
+function analyzeImageForCrops(imgElement) {
+    // 1. Create offline canvas
+    const RES = 150; // Low res for speed
+    const canvas = document.createElement('canvas');
+    canvas.width = RES;
+    canvas.height = RES;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    
+    // Draw image
+    try {
+        ctx.drawImage(imgElement, 0, 0, RES, RES);
+    } catch(e) {
+        console.warn("CORS issue likely prevented image analysis", e);
+        return null;
+    }
+
+    const pixels = ctx.getImageData(0, 0, RES, RES).data;
+    const scores = new Float32Array(RES * RES);
+
+    // 2. Build Score Map (Contrast + Faces)
+    for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i];
+        const g = pixels[i+1];
+        const b = pixels[i+2];
+
+        // A. Edge Detection
+        let edge = 0;
+        if ((i/4) % RES < RES - 1) {
+            edge = Math.abs(r - pixels[i+4]) + Math.abs(g - pixels[i+5]) + Math.abs(b - pixels[i+6]);
+        }
+
+        // B. Skin Tone Heuristic (Face Priority)
+        let isSkin = 0;
+        if (r > 60 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15 && r - Math.min(g, b) > 15) {
+            isSkin = 1;
+        }
+
+        let pixelScore = edge;
+        if (isSkin) pixelScore += 255; // Massive bonus for faces
+        
+        scores[i/4] = pixelScore;
+    }
+
+    // 3. Find 3 Distinct Crops
+    const cropSize = Math.floor(RES / CONFIG.SMART_ZOOM_LEVEL);
+    const results = [];
+
+    for (let k = 0; k < 3; k++) {
+        let maxScore = -Infinity;
+        let bestX = 0;
+        let bestY = 0;
+
+        // Slide window
+        for (let y = 0; y <= RES - cropSize; y += 2) {
+            for (let x = 0; x <= RES - cropSize; x += 2) {
+                let currentTotal = 0;
+                // Sampling optimization
+                for (let sy = 0; sy < cropSize; sy += 5) {
+                    for (let sx = 0; sx < cropSize; sx += 5) {
+                        currentTotal += scores[(y + sy) * RES + (x + sx)];
+                    }
+                }
+                if (currentTotal > maxScore) {
+                    maxScore = currentTotal;
+                    bestX = x;
+                    bestY = y;
+                }
+            }
+        }
+
+        // Store center point in percentages
+        results.push({
+            x: ((bestX + cropSize/2) / RES) * 100,
+            y: ((bestY + cropSize/2) / RES) * 100
+        });
+
+        // Inhibition (Burn area)
+        for (let by = bestY; by < bestY + cropSize; by++) {
+            for (let bx = bestX; bx < bestX + cropSize; bx++) {
+                if (by < RES && bx < RES) scores[by * RES + bx] = -99999;
+            }
+        }
+    }
+
+    return results;
+}
+
+
+// --- CSV / ITUNES HELPERS ---
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -289,8 +496,7 @@ async function loadCSV() {
     try {
         const response = await fetch(CONFIG.CSV_FILENAME);
         if (!response.ok) return; 
-        const text = await response.text();
-        parseCSV(text);
+        parseCSV(await response.text());
     } catch (error) { console.error("CSV Load Error", error); }
 }
 
@@ -304,14 +510,9 @@ function parseCSV(text) {
 
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
-        if (cols.length > idIndex) {
-            state.csvTrackList.push({ id: cols[idIndex] });
-        }
+        if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
     }
-
-    if (state.csvTrackList.length > 0) {
-        shuffleArray(state.csvTrackList);
-    }
+    if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
 }
 
 function triggerCsvUpdate() {
@@ -322,12 +523,10 @@ function triggerCsvUpdate() {
     if(!track) return; 
 
     fetchItunesById(track.id, (url) => {
-        if (url) {
-            performVisualTransition(url);
-        } else {
+        if (url) performVisualTransition(url);
+        else {
              state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
              setTimeout(triggerCsvUpdate, 1000); 
-             return;
         }
     });
     state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
@@ -338,15 +537,11 @@ function fetchItunesById(appleId, callback) {
     const cbName = 'cb_id_' + Math.floor(Math.random() * 100000);
     const script = document.createElement('script');
     script.src = `https://itunes.apple.com/lookup?id=${appleId}&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
-    
     window[cbName] = function(data) {
         cleanupScript(script, cbName);
         if (data && data.results && data.results.length > 0) {
-            const raw = data.results[0].artworkUrl100;
-            callback(raw.replace('100x100bb', '1200x1200bb')); 
-        } else {
-            callback(null);
-        }
+            callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+        } else callback(null);
     };
     script.onerror = () => { cleanupScript(script, cbName); callback(null); };
     document.body.appendChild(script);
@@ -354,27 +549,17 @@ function fetchItunesById(appleId, callback) {
 
 function fetchItunesBySearch(trackName, artistName, albumName, callback) {
     const cbName = 'cb_search_' + Math.floor(Math.random() * 100000);
-    
-    // BUILD SEARCH QUERY: Artist + Track + Album (if available)
     let query = artistName + ' ' + trackName;
-    if (albumName) {
-        query += ' ' + albumName;
-    }
+    if (albumName) query += ' ' + albumName;
     
-    const term = encodeURIComponent(query);
     const script = document.createElement('script');
-    
-    // entity=song finds the track within the specific album context
-    script.src = `https://itunes.apple.com/search?term=${term}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+    script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
     
     window[cbName] = function(data) {
         cleanupScript(script, cbName);
         if (data && data.results && data.results.length > 0) {
-            const raw = data.results[0].artworkUrl100;
-            callback(raw.replace('100x100bb', '1200x1200bb')); 
-        } else {
-            callback(null); 
-        }
+            callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+        } else callback(null);
     };
     script.onerror = () => { cleanupScript(script, cbName); callback(null); };
     document.body.appendChild(script);
@@ -385,14 +570,13 @@ function cleanupScript(script, cbName) {
     delete window[cbName];
 }
 
-// --- STYLES INJECTOR (UPDATED FOR CORNER SNAPPING) ---
+// --- STYLES ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
 
     const style = document.createElement('style');
     style.id = 'albums-module-styles';
     style.textContent = `
-        /* Container */
         #container {
             position: relative;
             width: 100vw;
@@ -403,89 +587,40 @@ function injectStyles() {
             overflow: hidden;
             background-color: #000;
         }
-
-        /* Blurred Background */
         #bg-layer {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-size: cover;
-            background-position: center;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-size: cover; background-position: center;
             filter: blur(120px) brightness(0.9);
             transform: scale(1.4);
-            z-index: 1;
-            opacity: 0; 
-            transition: opacity 1s ease-in-out;
-            will-change: opacity;
+            z-index: 1; opacity: 0; transition: opacity 1s;
         }
-
-        /* Main Album Wrapper - The "Camera Object" */
         #art-wrapper {
             position: relative;
             z-index: 10;
             height: 90vh; 
             aspect-ratio: 1.4 / 1;
-            max-width: 90vw;
-            max-height: 90vh;
+            max-width: 90vw; max-height: 90vh;
             display: flex;
             box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
             border-radius: 24px; 
             overflow: hidden; 
-            will-change: transform; 
-            transform-origin: center center;
+            /* Remove standard transition to allow WAAPI/Keyframes to take over */
         }
-
-        /* Image */
         #album-art {
-            width: 100%;
-            height: 100%;
-            object-fit: fill; 
-            opacity: 0; 
-            transition: opacity 1s ease-in-out;
+            width: 100%; height: 100%; object-fit: fill; 
+            opacity: 0; transition: opacity 1s;
         }
-
-        /* Animation Class */
+        /* CSV Animation Only */
         .csv-animate {
-            animation-name: cameraPanCycle;
-            animation-duration: 250s; 
-            animation-timing-function: ease-in-out;
-            animation-iteration-count: 2;
-            animation-fill-mode: forwards;
+            animation: cameraPanCycle 250s ease-in-out 2 forwards;
         }
-
-        /* --- KEYFRAMES EXPLANATION --- 
-           Logic: scale(2) doubles the size.
-           To stick a corner to the screen edge (0 gap), we must translate.
-           
-           Math: 'calc(50% - 25vw)' 
-           - 50% is half the Wrapper width (in scaled coordinate space, effectively).
-           - 25vw is quarter screen width.
-           - This derived value forces the wrapper edge to align with viewport edge
-             regardless of aspect ratio.
-        */
         @keyframes cameraPanCycle {
-            /* Phase 1: Full View (Start) */
             0%, 2% { transform: scale(1) translate(0, 0); }
-
-            /* Phase 2: Top-Left (Stick to TL Corner) */
-            /* Translate X: (50% - 25vw), Y: (50% - 25vh) */
             4%, 20% { transform: scale(2) translate(calc(50% - 25vw), calc(50% - 25vh)); }
-
-            /* Phase 3: Top-Right (Stick to TR Corner) */
-            /* Translate X: (25vw - 50%), Y: (50% - 25vh) */
             22%, 40% { transform: scale(2) translate(calc(25vw - 50%), calc(50% - 25vh)); }
-
-            /* Phase 4: Bottom-Right (Stick to BR Corner) */
-            /* Translate X: (25vw - 50%), Y: (25vh - 50%) */
             42%, 60% { transform: scale(2) translate(calc(25vw - 50%), calc(25vh - 50%)); }
-
-            /* Phase 5: Bottom-Left (Stick to BL Corner) */
-            /* Translate X: (50% - 25vw), Y: (25vh - 50%) */
             62%, 80% { transform: scale(2) translate(calc(50% - 25vw), calc(25vh - 50%)); }
-
-            /* Loop Back to Full */
             82%, 100% { transform: scale(1) translate(0, 0); }
         }
     `;
