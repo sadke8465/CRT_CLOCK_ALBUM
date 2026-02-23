@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Albums - SmartCrop Quarter Square</title>
+    <title>Albums - SmartCrop Test</title>
     
     <script src="https://unpkg.com/smartcrop@2.0.5/smartcrop.js"></script>
 
@@ -14,12 +14,16 @@
             background-color: #000;
             overflow: hidden;
             font-family: sans-serif;
+            /* Prevent highlighting when tapping to skip on mobile */
+            user-select: none; 
+            -webkit-user-select: none;
         }
         #container {
             position: relative;
             width: 100vw; height: 100vh;
             display: flex; justify-content: center; align-items: center;
             overflow: hidden; background-color: #000;
+            cursor: pointer; /* Show it's clickable */
         }
         #bg-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -29,22 +33,22 @@
         }
         #art-wrapper {
             position: relative; z-index: 10;
-            height: 90vh; aspect-ratio: 1 / 1;
-            max-width: 90vw; max-height: 90vh;
+            /* THE FIX: 90vmin ensures it perfectly fits the screen on both mobile portrait and desktop landscape without stretching */
+            width: 90vmin; 
+            height: 90vmin;
             display: flex;
             box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
             border-radius: 24px; overflow: hidden; 
         }
         #album-art {
-            width: 100%; height: 100%; object-fit: contain; 
+            width: 100%; height: 100%; 
+            object-fit: contain; /* Guarantees the image never stretches, even if it's not a perfect square */
             opacity: 0; transition: opacity 1s;
         }
         
-        /* 2. Styling for the Red Square Overlay */
         #crop-highlight {
             position: absolute;
             border: 4px solid red;
-            /* Added a slight shadow to make the red pop more */
             box-shadow: 0 0 10px rgba(0,0,0,0.5), 0 0 0 9999px rgba(0, 0, 0, 0.4);
             box-sizing: border-box;
             pointer-events: none; 
@@ -68,23 +72,16 @@
     </div>
 
     <script>
-        /**
-         * ALBUMS MODULE (SmartCrop Quarter Square Edition)
-         */
-
         const CONFIG = {
             CSV_FILENAME: 'applemusic-3.csv', 
             CSV_INTERVAL_MS: 500000, 
             STORE_COUNTRY: 'il', 
-            
             FADE_DURATION: 700, 
             BLACK_HOLD_DURATION: 200, 
-            
             LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
             LAST_FM_USER: 'Noamsadi95',
             LAST_FM_POLL_INTERVAL: 5000, 
             LAST_FM_TIMEOUT_MS: 20 * 60 * 1000
-            // Removed hardcoded CROP settings here
         };
 
         let intervals = { lastFm: null, csv: null };
@@ -106,22 +103,30 @@
             await loadCSV(); 
             checkLastFm(); 
             intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
-            setupKeyboardListeners();
+            setupInputListeners();
         }
 
-        function setupKeyboardListeners() {
+        function setupInputListeners() {
+            // S Key for desktop
             document.addEventListener('keydown', (e) => {
-                if (e.key.toLowerCase() === 's') {
-                    console.log("[Albums] Shuffle triggered manually.");
-                    if (state.currentMode !== 'CSV') {
-                        startCsvMode();
-                    } else {
-                        if (intervals.csv) clearInterval(intervals.csv);
-                        triggerCsvUpdate();
-                        intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
-                    }
-                }
+                if (e.key.toLowerCase() === 's') triggerShuffle();
             });
+            // Tap anywhere on the container for mobile
+            document.getElementById('container').addEventListener('click', () => {
+                triggerShuffle();
+            });
+        }
+
+        function triggerShuffle() {
+            if (state.isTransitioning) return;
+            console.log("[Albums] Shuffle triggered.");
+            if (state.currentMode !== 'CSV') {
+                startCsvMode();
+            } else {
+                if (intervals.csv) clearInterval(intervals.csv);
+                triggerCsvUpdate();
+                intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+            }
         }
 
         async function requestWakeLock() {
@@ -133,14 +138,16 @@
             }
         }
 
-        // --- VISUAL TRANSITION & SMART CROP ENGINE ---
         function performVisualTransition(imageUrl, onSuccessCallback) {
             if (state.isTransitioning) return false; 
             state.isTransitioning = true;
 
             const loader = new Image();
             loader.crossOrigin = "Anonymous"; 
-            loader.src = imageUrl;
+            
+            // Bypass CORS issues using a proxy
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(imageUrl)}`;
+            loader.src = proxyUrl; 
 
             loader.onload = () => {
                 const imgEl = document.getElementById('album-art');
@@ -151,37 +158,40 @@
 
                 imgEl.style.opacity = '0';
                 bgEl.style.opacity = '0';
-                if(cropHighlight) cropHighlight.style.opacity = '0';
+                if(cropHighlight) {
+                    cropHighlight.style.opacity = '0';
+                    cropHighlight.style.borderColor = 'red'; // Reset to red
+                }
 
-                // --- SMART CROP CALCULATION ---
-                // 1. Calculate total area of the loaded image
                 const totalArea = loader.width * loader.height;
-                
-                // 2. Target area is 1/4 of total area
                 const targetArea = totalArea / 4;
-                
-                // 3. Since we want a square, the side length is the square root of the area.
-                const targetSide = Math.round(Math.sqrt(targetArea));
+                const targetSide = Math.max(1, Math.round(Math.sqrt(targetArea)));
 
-                // 4. Run SmartCrop with calculated square dimensions
                 smartcrop.crop(loader, { 
                     width: targetSide, 
                     height: targetSide 
                 }).then(function(result) {
                     const crop = result.topCrop;
-                    
-                    // Convert crop pixel coordinates to percentages relative to the image
                     const leftPct = (crop.x / loader.width) * 100;
                     const topPct = (crop.y / loader.height) * 100;
                     const widthPct = (crop.width / loader.width) * 100;
                     const heightPct = (crop.height / loader.height) * 100;
 
-                    // Apply to the red square overlay
                     if(cropHighlight) {
                         cropHighlight.style.left = leftPct + '%';
                         cropHighlight.style.top = topPct + '%';
                         cropHighlight.style.width = widthPct + '%';
                         cropHighlight.style.height = heightPct + '%';
+                    }
+                }).catch(function(error) {
+                    // IF IT FAILS DUE TO SECURITY/CORS, SHOW A YELLOW BOX IN THE MIDDLE
+                    console.error("[SmartCrop] Failed to analyze image:", error);
+                    if(cropHighlight) {
+                        cropHighlight.style.borderColor = 'yellow'; // Turn yellow to indicate an error
+                        cropHighlight.style.left = '25%';
+                        cropHighlight.style.top = '25%';
+                        cropHighlight.style.width = '50%';
+                        cropHighlight.style.height = '50%';
                     }
                 });
 
@@ -195,7 +205,6 @@
                         imgEl.style.opacity = '1';
                         bgEl.style.opacity = '1';
                         
-                        // Fade in the red box shortly after the image
                         setTimeout(() => {
                             if(cropHighlight) cropHighlight.style.opacity = '1';
                         }, 300);
@@ -211,7 +220,8 @@
 
             loader.onerror = () => {
                 state.isTransitioning = false;
-                console.warn("Failed to load image:", imageUrl);
+                console.warn("Failed to load image via proxy. Falling back to next track.");
+                triggerShuffle(); 
             };
 
             return true;
@@ -220,11 +230,7 @@
         // --- HELPER: START CSV MODE ---
         function startCsvMode() {
             if (state.currentMode === 'CSV' && intervals.csv) return;
-
-            console.log("Starting CSV Mode");
-            
             state.currentMode = 'CSV';
-            
             if (intervals.csv) clearInterval(intervals.csv);
             triggerCsvUpdate(); 
             intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
@@ -245,31 +251,21 @@
 
                     if (!state.startupDone) {
                         state.startupDone = true;
-                        if (isNowPlaying) {
-                            switchToLastFm(track, trackIdentifier);
-                        } else {
-                            startCsvMode();
-                        }
+                        if (isNowPlaying) switchToLastFm(track, trackIdentifier);
+                        else startCsvMode();
                         return; 
                     }
 
                     if (isNowPlaying) {
                         state.lastFmActivityTime = Date.now();
-                        
                         if (state.currentMode === 'CSV') {
                             if (intervals.csv) clearInterval(intervals.csv);
                             switchToLastFm(track, trackIdentifier);
-                        } 
-                        else if (trackIdentifier !== state.displayedLastFmTrack) {
+                        } else if (trackIdentifier !== state.displayedLastFmTrack) {
                             switchToLastFm(track, trackIdentifier);
                         }
-
-                    } else {
-                        if (state.currentMode === 'LASTFM') {
-                            if (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS) {
-                                startCsvMode();
-                            }
-                        }
+                    } else if (state.currentMode === 'LASTFM' && (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS)) {
+                        startCsvMode();
                     }
                 }
             } catch (error) {
@@ -302,7 +298,6 @@
             });
         }
 
-        // --- HELPERS ---
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -313,10 +308,7 @@
         async function loadCSV() {
             try {
                 const response = await fetch(CONFIG.CSV_FILENAME);
-                if (!response.ok) {
-                    console.warn("CSV not found.");
-                    return; 
-                }
+                if (!response.ok) return; 
                 parseCSV(await response.text());
             } catch (error) { 
                 console.error("CSV Load Error:", error); 
