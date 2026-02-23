@@ -14,7 +14,6 @@
             background-color: #000;
             overflow: hidden;
             font-family: sans-serif;
-            /* Prevent highlighting when tapping to skip on mobile */
             user-select: none; 
             -webkit-user-select: none;
         }
@@ -23,7 +22,7 @@
             width: 100vw; height: 100vh;
             display: flex; justify-content: center; align-items: center;
             overflow: hidden; background-color: #000;
-            cursor: pointer; /* Show it's clickable */
+            cursor: pointer; 
         }
         #bg-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -33,7 +32,6 @@
         }
         #art-wrapper {
             position: relative; z-index: 10;
-            /* THE FIX: 90vmin ensures it perfectly fits the screen on both mobile portrait and desktop landscape without stretching */
             width: 90vmin; 
             height: 90vmin;
             display: flex;
@@ -42,10 +40,9 @@
         }
         #album-art {
             width: 100%; height: 100%; 
-            object-fit: contain; /* Guarantees the image never stretches, even if it's not a perfect square */
+            object-fit: contain; 
             opacity: 0; transition: opacity 1s;
         }
-        
         #crop-highlight {
             position: absolute;
             border: 4px solid red;
@@ -56,14 +53,24 @@
             opacity: 0;
             transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
+        
+        /* Debug Tracker to see exactly what is failing */
+        #debug-log {
+            position: absolute; top: 10px; left: 10px; z-index: 999;
+            color: #00ff00; font-family: monospace; font-size: 12px;
+            background: rgba(0,0,0,0.6); padding: 8px; border-radius: 8px;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
 
+    <div id="debug-log">Starting up...</div>
+
     <div id="container">
         <div id="bg-layer"></div>
         <div id="art-wrapper">
-            <img id="album-art" src="" alt="" crossorigin="anonymous" />
+            <img id="album-art" src="" alt="" />
             <div id="crop-highlight"></div>
         </div>
         <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute;">
@@ -97,8 +104,14 @@
             isTransitioning: false
         };
 
+        function logStatus(msg) {
+            console.log("[Status]", msg);
+            const logEl = document.getElementById('debug-log');
+            if (logEl) logEl.innerText = msg;
+        }
+
         async function init() {
-            console.log("[Albums] Initializing...");
+            logStatus("Initializing...");
             requestWakeLock();
             await loadCSV(); 
             checkLastFm(); 
@@ -107,11 +120,9 @@
         }
 
         function setupInputListeners() {
-            // S Key for desktop
             document.addEventListener('keydown', (e) => {
                 if (e.key.toLowerCase() === 's') triggerShuffle();
             });
-            // Tap anywhere on the container for mobile
             document.getElementById('container').addEventListener('click', () => {
                 triggerShuffle();
             });
@@ -119,7 +130,7 @@
 
         function triggerShuffle() {
             if (state.isTransitioning) return;
-            console.log("[Albums] Shuffle triggered.");
+            logStatus("Shuffle tapped!");
             if (state.currentMode !== 'CSV') {
                 startCsvMode();
             } else {
@@ -132,24 +143,20 @@
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
-            } catch (err) {
-                const vid = document.getElementById('wake-video');
-                if(vid) vid.play().catch(e => {});
-            }
+            } catch (err) {}
         }
 
         function performVisualTransition(imageUrl, onSuccessCallback) {
             if (state.isTransitioning) return false; 
             state.isTransitioning = true;
+            logStatus("Downloading Image...");
 
-            const loader = new Image();
-            loader.crossOrigin = "Anonymous"; 
-            
-            // Bypass CORS issues using a proxy
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(imageUrl)}`;
-            loader.src = proxyUrl; 
+            // 1. Load the display image normally (NO CORS restrictions, guarantees it shows)
+            const displayLoader = new Image();
+            displayLoader.src = imageUrl;
 
-            loader.onload = () => {
+            displayLoader.onload = () => {
+                logStatus("Image ready. Displaying...");
                 const imgEl = document.getElementById('album-art');
                 const bgEl = document.getElementById('bg-layer');
                 const cropHighlight = document.getElementById('crop-highlight');
@@ -160,44 +167,10 @@
                 bgEl.style.opacity = '0';
                 if(cropHighlight) {
                     cropHighlight.style.opacity = '0';
-                    cropHighlight.style.borderColor = 'red'; // Reset to red
+                    cropHighlight.style.borderColor = 'yellow'; // Set yellow until crop is proven
                 }
 
-                const totalArea = loader.width * loader.height;
-                const targetArea = totalArea / 4;
-                const targetSide = Math.max(1, Math.round(Math.sqrt(targetArea)));
-
-                smartcrop.crop(loader, { 
-                    width: targetSide, 
-                    height: targetSide 
-                }).then(function(result) {
-                    const crop = result.topCrop;
-                    const leftPct = (crop.x / loader.width) * 100;
-                    const topPct = (crop.y / loader.height) * 100;
-                    const widthPct = (crop.width / loader.width) * 100;
-                    const heightPct = (crop.height / loader.height) * 100;
-
-                    if(cropHighlight) {
-                        cropHighlight.style.left = leftPct + '%';
-                        cropHighlight.style.top = topPct + '%';
-                        cropHighlight.style.width = widthPct + '%';
-                        cropHighlight.style.height = heightPct + '%';
-                    }
-                }).catch(function(error) {
-                    // IF IT FAILS DUE TO SECURITY/CORS, SHOW A YELLOW BOX IN THE MIDDLE
-                    console.error("[SmartCrop] Failed to analyze image:", error);
-                    if(cropHighlight) {
-                        cropHighlight.style.borderColor = 'yellow'; // Turn yellow to indicate an error
-                        cropHighlight.style.left = '25%';
-                        cropHighlight.style.top = '25%';
-                        cropHighlight.style.width = '50%';
-                        cropHighlight.style.height = '50%';
-                    }
-                });
-
                 setTimeout(() => {
-                    if (!document.getElementById('album-art')) return;
-
                     imgEl.src = imageUrl;
                     bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
@@ -205,31 +178,69 @@
                         imgEl.style.opacity = '1';
                         bgEl.style.opacity = '1';
                         
-                        setTimeout(() => {
-                            if(cropHighlight) cropHighlight.style.opacity = '1';
-                        }, 300);
-
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
+                            logStatus("Running SmartCrop...");
+                            
+                            // 2. Try to run SmartCrop in the background using a reliable Image Proxy
+                            runSmartCrop(imageUrl, cropHighlight);
+
                         }, CONFIG.FADE_DURATION);
                     });
-
-                }, CONFIG.FADE_DURATION + CONFIG.BLACK_HOLD_DURATION + 100); 
+                }, 100); 
             };
 
-            loader.onerror = () => {
+            displayLoader.onerror = () => {
                 state.isTransitioning = false;
-                console.warn("Failed to load image via proxy. Falling back to next track.");
-                triggerShuffle(); 
+                logStatus("Error: Display image failed to load.");
+                setTimeout(triggerShuffle, 1000); 
             };
 
             return true;
         }
 
+        function runSmartCrop(originalUrl, highlightElement) {
+            const proxyLoader = new Image();
+            proxyLoader.crossOrigin = "Anonymous";
+            // Use wsrv.nl proxy to bypass Apple's strict CORS rules
+            proxyLoader.src = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`;
+
+            proxyLoader.onload = () => {
+                const totalArea = proxyLoader.width * proxyLoader.height;
+                const targetSide = Math.max(1, Math.round(Math.sqrt(totalArea / 4)));
+
+                smartcrop.crop(proxyLoader, { width: targetSide, height: targetSide }).then(result => {
+                    logStatus("SmartCrop Successful!");
+                    const crop = result.topCrop;
+                    const leftPct = (crop.x / proxyLoader.width) * 100;
+                    const topPct = (crop.y / proxyLoader.height) * 100;
+                    const widthPct = (crop.width / proxyLoader.width) * 100;
+                    const heightPct = (crop.height / proxyLoader.height) * 100;
+
+                    if(highlightElement) {
+                        highlightElement.style.borderColor = 'red';
+                        highlightElement.style.left = leftPct + '%';
+                        highlightElement.style.top = topPct + '%';
+                        highlightElement.style.width = widthPct + '%';
+                        highlightElement.style.height = heightPct + '%';
+                        highlightElement.style.opacity = '1';
+                    }
+                }).catch(err => {
+                    logStatus("SmartCrop Failed.");
+                    console.error(err);
+                });
+            };
+
+            proxyLoader.onerror = () => {
+                logStatus("Error: Proxy image blocked.");
+            };
+        }
+
         // --- HELPER: START CSV MODE ---
         function startCsvMode() {
             if (state.currentMode === 'CSV' && intervals.csv) return;
+            logStatus("Starting CSV Mode");
             state.currentMode = 'CSV';
             if (intervals.csv) clearInterval(intervals.csv);
             triggerCsvUpdate(); 
@@ -239,7 +250,6 @@
         // --- LAST.FM LOGIC ---
         async function checkLastFm() {
             const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${CONFIG.LAST_FM_USER}&api_key=${CONFIG.LAST_FM_API_KEY}&format=json&limit=1`;
-            
             try {
                 const response = await fetch(url);
                 const data = await response.json();
@@ -269,7 +279,6 @@
                     }
                 }
             } catch (error) {
-                console.error("Last.fm Error", error);
                 if (!state.startupDone) {
                     state.startupDone = true;
                     startCsvMode();
@@ -280,6 +289,7 @@
         function switchToLastFm(track, trackIdentifier) {
             state.currentMode = 'LASTFM';
             state.lastFmTrackStartTime = Date.now();
+            logStatus("Last.fm: " + track.name);
 
             const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
 
@@ -289,11 +299,12 @@
                     const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
                     if (imgObj) finalImage = imgObj['#text'];
                 }
-
                 if (finalImage) {
                     performVisualTransition(finalImage, () => {
                         state.displayedLastFmTrack = trackIdentifier;
                     });
+                } else {
+                    logStatus("No artwork found.");
                 }
             });
         }
@@ -308,10 +319,13 @@
         async function loadCSV() {
             try {
                 const response = await fetch(CONFIG.CSV_FILENAME);
-                if (!response.ok) return; 
+                if (!response.ok) throw new Error("Fetch failed"); 
                 parseCSV(await response.text());
+                logStatus("CSV Loaded.");
             } catch (error) { 
-                console.error("CSV Load Error:", error); 
+                logStatus("CSV Blocked. Using Fallback.");
+                // Fallback track (Daft Punk) if the mobile app blocks local files
+                state.csvTrackList.push({ id: '617154241' });
             }
         }
 
@@ -337,6 +351,7 @@
             const track = state.csvTrackList[state.csvIndex];
             if(!track) return; 
 
+            logStatus("Fetching Apple Music Data...");
             fetchItunesById(track.id, (url) => {
                 if (url) performVisualTransition(url);
                 else {
