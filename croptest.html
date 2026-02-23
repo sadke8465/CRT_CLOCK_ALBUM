@@ -114,7 +114,6 @@
             logStatus("Initializing...");
             requestWakeLock();
             
-            // NEW: Load the AI models before doing anything else
             await loadAIModels(); 
             
             await loadCSV(); 
@@ -126,7 +125,6 @@
         async function loadAIModels() {
             logStatus("Loading AI Face Models...");
             try {
-                // Fetching the lightweight models directly from the CDN to bypass local file restrictions
                 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
                 await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
                 logStatus("AI Models Loaded!");
@@ -215,6 +213,7 @@
             return true;
         }
 
+        // --- THE NEW LOGIC ENGINE ---
         async function runSmartCropWithAI(originalUrl, highlightElement) {
             logStatus("Starting AI Scan...");
             const proxyLoader = new Image();
@@ -222,61 +221,75 @@
             proxyLoader.src = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`;
 
             proxyLoader.onload = async () => {
-                let aiBoosts = [];
+                // We want our box to be exactly 50% of the image size
+                const targetWidth = proxyLoader.width * 0.5;
+                const targetHeight = proxyLoader.height * 0.5;
+                
+                let faces = [];
 
                 try {
-                    // 1. Ask the Neural Network to find all faces in the image
-                    const detections = await faceapi.detectAllFaces(proxyLoader, new faceapi.TinyFaceDetectorOptions());
-                    logStatus(`Faces found: ${detections.length}`);
-
-                    // 2. Map the faces into a format SmartCrop understands as a "Boost"
-                    aiBoosts = detections.map(det => ({
-                        x: det.box.x,
-                        y: det.box.y,
-                        width: det.box.width,
-                        height: det.box.height,
-                        weight: 1.0 // High priority
-                    }));
+                    faces = await faceapi.detectAllFaces(proxyLoader, new faceapi.TinyFaceDetectorOptions());
                 } catch (e) {
-                    logStatus("AI Scan failed, using standard math.");
-                    console.error(e);
+                    console.error("AI Scan failed", e);
                 }
 
-                // 3. Run SmartCrop, passing the AI face boosts (if any were found)
-                smartcrop.crop(proxyLoader, { width: 100, height: 100, boost: aiBoosts }).then(result => {
-                    const crop = result.topCrop;
+                if (faces.length > 0) {
+                    logStatus(`Faces found: ${faces.length}. Snapping to face!`);
                     
-                    const focalX = crop.x + (crop.width / 2);
-                    const focalY = crop.y + (crop.height / 2);
+                    // 1. Find the boundaries of ALL faces combined
+                    let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+                    faces.forEach(face => {
+                        if (face.box.x < minX) minX = face.box.x;
+                        if (face.box.y < minY) minY = face.box.y;
+                        if (face.box.x + face.box.width > maxX) maxX = face.box.x + face.box.width;
+                        if (face.box.y + face.box.height > maxY) maxY = face.box.y + face.box.height;
+                    });
 
-                    const targetWidth = proxyLoader.width * 0.5;
-                    const targetHeight = proxyLoader.height * 0.5;
+                    // 2. Find the exact center point between all those faces
+                    const faceCenterX = minX + ((maxX - minX) / 2);
+                    const faceCenterY = minY + ((maxY - minY) / 2);
 
-                    let startX = focalX - (targetWidth / 2);
-                    let startY = focalY - (targetHeight / 2);
+                    // 3. Center our 50% box over that point
+                    let startX = faceCenterX - (targetWidth / 2);
+                    let startY = faceCenterY - (targetHeight / 2);
 
+                    // 4. Clamp the box so it doesn't slide off the edges of the album
                     startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
                     startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
 
-                    const leftPct = (startX / proxyLoader.width) * 100;
-                    const topPct = (startY / proxyLoader.height) * 100;
+                    applyCropBox(startX, startY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
 
-                    if(highlightElement) {
-                        highlightElement.style.borderColor = 'red';
-                        highlightElement.style.left = leftPct + '%';
-                        highlightElement.style.top = topPct + '%';
-                        highlightElement.style.width = '50%';
-                        highlightElement.style.height = '50%';
-                        highlightElement.style.opacity = '1';
-                    }
-                }).catch(err => {
-                    logStatus("Crop Calculation Failed.");
-                });
+                } else {
+                    logStatus("No faces. Using SmartCrop Fallback.");
+                    
+                    // If no faces, ask SmartCrop directly for a 50% box to find edges/logos
+                    smartcrop.crop(proxyLoader, { width: targetWidth, height: targetHeight }).then(result => {
+                        const crop = result.topCrop;
+                        applyCropBox(crop.x, crop.y, crop.width, crop.height, proxyLoader.width, proxyLoader.height, highlightElement);
+                    }).catch(err => logStatus("SmartCrop Failed."));
+                }
             };
 
             proxyLoader.onerror = () => {
                 logStatus("Error: Proxy image blocked for AI.");
             };
+        }
+
+        // Helper to draw the red box
+        function applyCropBox(x, y, w, h, imgW, imgH, el) {
+            const leftPct = (x / imgW) * 100;
+            const topPct = (y / imgH) * 100;
+            const widthPct = (w / imgW) * 100;
+            const heightPct = (h / imgH) * 100;
+
+            if (el) {
+                el.style.borderColor = 'red';
+                el.style.left = leftPct + '%';
+                el.style.top = topPct + '%';
+                el.style.width = widthPct + '%';
+                el.style.height = heightPct + '%';
+                el.style.opacity = '1';
+            }
         }
 
         // --- HELPER: START CSV MODE ---
