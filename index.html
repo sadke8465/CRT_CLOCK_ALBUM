@@ -2,132 +2,554 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TV Display</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Albums - Saliency & Face API</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+
     <style>
-        /* Global styles */
-        body { 
-            margin: 0; 
-            background: #000; 
-            overflow: hidden; 
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: sans-serif;
+            user-select: none; 
+            -webkit-user-select: none;
+        }
+        #container {
+            position: relative;
+            width: 100vw; height: 100vh;
+            display: flex; justify-content: center; align-items: center;
+            overflow: hidden; background-color: #000;
+            cursor: pointer; 
+        }
+        #bg-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-size: cover; background-position: center;
+            filter: blur(120px) brightness(0.9);
+            transform: scale(1.4); z-index: 1; opacity: 0; transition: opacity 1s;
+        }
+        #art-wrapper {
+            position: relative; z-index: 10;
+            width: 90vmin; 
+            height: 90vmin;
+            display: flex;
+            box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
+            border-radius: 24px; overflow: hidden; 
+        }
+        #album-art {
+            width: 100%; height: 100%; 
+            object-fit: contain; 
+            opacity: 0; transition: opacity 1s;
+        }
+        #crop-highlight {
+            position: absolute;
+            border: 4px solid red;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5), 0 0 0 9999px rgba(0, 0, 0, 0.4);
+            box-sizing: border-box;
+            pointer-events: none; 
+            z-index: 20;
+            opacity: 0;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        #stage { 
-            width: 100vw; 
-            height: 100vh; 
-            
-            /* HARDWARE ACCELERATED FADE TRANSITION */
-            opacity: 1;
-            transition: opacity 0.5s ease-in-out;
-            will-change: opacity;
+        #debug-log {
+            position: absolute; top: 10px; left: 10px; z-index: 999;
+            color: #00ff00; font-family: monospace; font-size: 12px;
+            background: rgba(0,0,0,0.6); padding: 8px; border-radius: 8px;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
-    <div id="stage"></div>
 
-    <script type="module">
-        import * as Albums from './albums.js';
-        import * as Clock from './clock.js';
+    <div id="debug-log">Starting up...</div>
 
-        // --- CONFIGURATION ---
-        const TOPIC = 'noams-tv-controller-882'; 
+    <div id="container">
+        <div id="bg-layer"></div>
+        <div id="art-wrapper">
+            <img id="album-art" src="" alt="" />
+            <div id="crop-highlight"></div>
+        </div>
+        <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute;">
+            <source src="data:video/mp4;base64,AAAAHGZ0eXBNNEVAAAAAAAEAAAAAAABtZGF0AAAAEAAACAAAABAAAAA=" type="video/mp4">
+        </video>
+    </div>
 
-        const stage = document.getElementById('stage');
-        let currentModule = null;
-        let isTransitioning = false;
+    <script>
+        const CONFIG = {
+            CSV_FILENAME: 'applemusic-3.csv', 
+            CSV_INTERVAL_MS: 500000, 
+            STORE_COUNTRY: 'il', 
+            FADE_DURATION: 700, 
+            BLACK_HOLD_DURATION: 200, 
+            LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
+            LAST_FM_USER: 'Noamsadi95',
+            LAST_FM_POLL_INTERVAL: 5000, 
+            LAST_FM_TIMEOUT_MS: 20 * 60 * 1000
+        };
 
-        /**
-         * MODULE SWITCHER
-         */
-        function loadModule(module) {
-            // 1. Prevent spamming or switching to the same module
-            if (isTransitioning || currentModule === module) return;
+        let intervals = { lastFm: null, csv: null };
 
-            // 2. First Load (Instant)
-            if (!currentModule) {
-                initNewModule(module);
-                return;
+        let state = {
+            startupDone: false,
+            currentMode: 'STARTUP', 
+            csvTrackList: [],
+            csvIndex: 0,
+            displayedLastFmTrack: null,     
+            lastFmTrackStartTime: 0,        
+            lastFmActivityTime: Date.now(),
+            isTransitioning: false
+        };
+
+        function logStatus(msg) {
+            console.log("[Status]", msg);
+            const logEl = document.getElementById('debug-log');
+            if (logEl) logEl.innerText = msg;
+        }
+
+        async function init() {
+            logStatus("Initializing...");
+            requestWakeLock();
+            await loadAIModels(); 
+            await loadCSV(); 
+            checkLastFm(); 
+            intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
+            setupInputListeners();
+        }
+
+        async function loadAIModels() {
+            logStatus("Downloading Face AI...");
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                logStatus("Systems Online!");
+            } catch (e) {
+                logStatus("Face AI Load Failed!");
+                console.error("Model Error:", e);
+            }
+        }
+
+        function setupInputListeners() {
+            document.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === 's') triggerShuffle();
+            });
+            document.getElementById('container').addEventListener('click', () => {
+                triggerShuffle();
+            });
+        }
+
+        function triggerShuffle() {
+            if (state.isTransitioning) return;
+            logStatus("Shuffle tapped!");
+            if (state.currentMode !== 'CSV') {
+                startCsvMode();
+            } else {
+                if (intervals.csv) clearInterval(intervals.csv);
+                triggerCsvUpdate();
+                intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+            }
+        }
+
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
+            } catch (err) {}
+        }
+
+        function performVisualTransition(imageUrl, onSuccessCallback) {
+            if (state.isTransitioning) return false; 
+            state.isTransitioning = true;
+            logStatus("Downloading Image...");
+
+            const displayLoader = new Image();
+            displayLoader.src = imageUrl;
+
+            displayLoader.onload = () => {
+                logStatus("Image ready. Displaying...");
+                const imgEl = document.getElementById('album-art');
+                const bgEl = document.getElementById('bg-layer');
+                const cropHighlight = document.getElementById('crop-highlight');
+
+                if (!imgEl || !bgEl) return; 
+
+                imgEl.style.opacity = '0';
+                bgEl.style.opacity = '0';
+                if(cropHighlight) {
+                    cropHighlight.style.opacity = '0';
+                    cropHighlight.style.borderColor = 'yellow'; 
+                }
+
+                setTimeout(() => {
+                    imgEl.src = imageUrl;
+                    bgEl.style.backgroundImage = `url('${imageUrl}')`;
+
+                    requestAnimationFrame(() => {
+                        imgEl.style.opacity = '1';
+                        bgEl.style.opacity = '1';
+                        
+                        setTimeout(() => { 
+                            state.isTransitioning = false;
+                            if(onSuccessCallback) onSuccessCallback();
+                            runFocalScan(imageUrl, cropHighlight);
+                        }, CONFIG.FADE_DURATION);
+                    });
+                }, 100); 
+            };
+
+            displayLoader.onerror = () => {
+                state.isTransitioning = false;
+                logStatus("Error: Display image failed to load.");
+                setTimeout(triggerShuffle, 1000); 
+            };
+
+            return true;
+        }
+
+        // --- CORE SCANNING ENGINE ---
+        async function runFocalScan(originalUrl, highlightElement) {
+            logStatus("Running Face Scan...");
+            const proxyLoader = new Image();
+            proxyLoader.crossOrigin = "Anonymous";
+            proxyLoader.src = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`;
+
+            proxyLoader.onload = async () => {
+                const targetWidth = proxyLoader.width * 0.5;
+                const targetHeight = proxyLoader.height * 0.5;
+                let faces = [];
+
+                try {
+                    faces = await faceapi.detectAllFaces(proxyLoader, new faceapi.TinyFaceDetectorOptions());
+                } catch (e) {
+                    console.error("Face Scan failed", e);
+                }
+
+                // TIER 1: Human Faces
+                if (faces.length > 0) {
+                    logStatus(`Faces found: ${faces.length}. Snapping to cluster!`);
+                    
+                    let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+                    faces.forEach(face => {
+                        if (face.box.x < minX) minX = face.box.x;
+                        if (face.box.y < minY) minY = face.box.y;
+                        if (face.box.x + face.box.width > maxX) maxX = face.box.x + face.box.width;
+                        if (face.box.y + face.box.height > maxY) maxY = face.box.y + face.box.height;
+                    });
+
+                    const faceCenterX = minX + ((maxX - minX) / 2);
+                    const faceCenterY = minY + ((maxY - minY) / 2);
+
+                    applyAndClampBox(faceCenterX, faceCenterY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
+
+                // TIER 2: Frequency-Tuned Saliency (Lab Color Space)
+                } else {
+                    logStatus("No faces. Running Saliency Map...");
+                    
+                    const focalPoint = calculateFrequencyTunedSaliency(proxyLoader);
+                    
+                    // focalPoint returns percentages (0 to 1). Convert to actual pixel coordinates.
+                    const focalX = focalPoint.x * proxyLoader.width;
+                    const focalY = focalPoint.y * proxyLoader.height;
+
+                    applyAndClampBox(focalX, focalY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
+                    logStatus("Saliency Scan Complete!");
+                }
+            };
+
+            proxyLoader.onerror = () => {
+                logStatus("Error: Proxy image blocked.");
+            };
+        }
+
+        // --- FREQUENCY-TUNED SALIENCY ALGORITHM ---
+        function calculateFrequencyTunedSaliency(img) {
+            const RES = 100; // Resolution of the working grid (downscaling acts as an initial blur)
+            const canvas = document.createElement('canvas');
+            canvas.width = RES;
+            canvas.height = RES;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, RES, RES);
+            
+            const imgData = ctx.getImageData(0, 0, RES, RES);
+            const data = imgData.data;
+            const numPixels = RES * RES;
+            
+            const labPixels = new Array(numPixels);
+            let sumL = 0, sumA = 0, sumB = 0;
+
+            // Step 1 & 2: Convert RGB to Lab and accumulate sums
+            for (let i = 0; i < numPixels; i++) {
+                const r = data[i * 4];
+                const g = data[i * 4 + 1];
+                const b = data[i * 4 + 2];
+                
+                const lab = rgbToLab(r, g, b);
+                labPixels[i] = lab;
+                
+                sumL += lab.l;
+                sumA += lab.a;
+                sumB += lab.b;
             }
 
-            // 3. Start Transition: Fade Out
-            isTransitioning = true;
-            stage.style.opacity = '0';
+            // Step 3: Compute Mean Lab color
+            const meanL = sumL / numPixels;
+            const meanA = sumA / numPixels;
+            const meanB = sumB / numPixels;
 
-            // 4. Wait for fade-out (1s), then swap
-            setTimeout(() => {
-                // CLEANUP OLD
-                if (currentModule && currentModule.cleanup) {
-                    currentModule.cleanup();
-                }
-                stage.innerHTML = '';
+            // Step 4: Compute squared Euclidean distance for each pixel
+            const saliencyMap = new Float32Array(numPixels);
+            for (let i = 0; i < numPixels; i++) {
+                const p = labPixels[i];
+                saliencyMap[i] = Math.pow(p.l - meanL, 2) + Math.pow(p.a - meanA, 2) + Math.pow(p.b - meanB, 2);
+            }
 
-                // START NEW
-                initNewModule(module);
-
-                // Fade In
-                requestAnimationFrame(() => {
-                    stage.style.opacity = '1';
+            // Step 5: Simple Box Blur (approximates Gaussian to group regions)
+            const blurredMap = new Float32Array(numPixels);
+            const blurRadius = 3; 
+            
+            for (let y = 0; y < RES; y++) {
+                for (let x = 0; x < RES; x++) {
+                    let valSum = 0;
+                    let count = 0;
                     
-                    setTimeout(() => { 
-                        isTransitioning = false; 
-                    }, 1000);
-                });
+                    for (let dy = -blurRadius; dy <= blurRadius; dy++) {
+                        for (let dx = -blurRadius; dx <= blurRadius; dx++) {
+                            const nx = x + dx;
+                            const ny = y + dy;
+                            if (nx >= 0 && nx < RES && ny >= 0 && ny < RES) {
+                                valSum += saliencyMap[ny * RES + nx];
+                                count++;
+                            }
+                        }
+                    }
+                    blurredMap[y * RES + x] = valSum / count;
+                }
+            }
 
-            }, 1000); 
+            // Step 6: Find the highest saliency coordinate
+            let maxVal = -1;
+            let maxIdx = 0;
+            for (let i = 0; i < numPixels; i++) {
+                if (blurredMap[i] > maxVal) {
+                    maxVal = blurredMap[i];
+                    maxIdx = i;
+                }
+            }
+
+            // Return percentages (0.0 to 1.0)
+            return {
+                x: (maxIdx % RES) / RES,
+                y: Math.floor(maxIdx / RES) / RES
+            };
         }
 
-        function initNewModule(module) {
-            module.init(stage);
-            currentModule = module;
+        // RGB -> XYZ -> CIELAB Conversion 
+        function rgbToLab(r, g, b) {
+            let r_l = r / 255, g_l = g / 255, b_l = b / 255;
+            
+            r_l = r_l > 0.04045 ? Math.pow((r_l + 0.055) / 1.055, 2.4) : r_l / 12.92;
+            g_l = g_l > 0.04045 ? Math.pow((g_l + 0.055) / 1.055, 2.4) : g_l / 12.92;
+            b_l = b_l > 0.04045 ? Math.pow((b_l + 0.055) / 1.055, 2.4) : b_l / 12.92;
+
+            let x = (r_l * 0.4124564 + g_l * 0.3575761 + b_l * 0.1804375) / 0.95047;
+            let y = (r_l * 0.2126729 + g_l * 0.7151522 + b_l * 0.0721750) / 1.00000;
+            let z = (r_l * 0.0193339 + g_l * 0.1191920 + b_l * 0.9503041) / 1.08883;
+
+            x = x > 0.008856 ? Math.pow(x, 1/3) : (7.787 * x) + 16/116;
+            y = y > 0.008856 ? Math.pow(y, 1/3) : (7.787 * y) + 16/116;
+            z = z > 0.008856 ? Math.pow(z, 1/3) : (7.787 * z) + 16/116;
+
+            return {
+                l: (116 * y) - 16,
+                a: 500 * (x - y),
+                b: 200 * (y - z)
+            };
         }
 
-        // --- INITIALIZATION ---
-        loadModule(Albums);
-        console.log(`[TV] System started. Listening on: ${TOPIC}`);
+        // --- MATH: Clamp Box to Image Boundaries ---
+        function applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, el) {
+            let startX = centerX - (targetWidth / 2);
+            let startY = centerY - (targetHeight / 2);
 
-        // --- REMOTE CONTROL LISTENER ---
-        const socket = new WebSocket(`wss://ntfy.sh/${TOPIC}/ws`);
+            startX = Math.max(0, Math.min(imgW - targetWidth, startX));
+            startY = Math.max(0, Math.min(imgH - targetHeight, startY));
 
-        socket.addEventListener('message', (event) => {
+            const leftPct = (startX / imgW) * 100;
+            const topPct = (startY / imgH) * 100;
+            const widthPct = (targetWidth / imgW) * 100;
+            const heightPct = (targetHeight / imgH) * 100;
+
+            if (el) {
+                el.style.borderColor = 'red';
+                el.style.left = leftPct + '%';
+                el.style.top = topPct + '%';
+                el.style.width = widthPct + '%';
+                el.style.height = heightPct + '%';
+                el.style.opacity = '1';
+            }
+        }
+
+        // --- HELPER: START CSV MODE ---
+        function startCsvMode() {
+            if (state.currentMode === 'CSV' && intervals.csv) return;
+            logStatus("Starting CSV Mode");
+            state.currentMode = 'CSV';
+            if (intervals.csv) clearInterval(intervals.csv);
+            triggerCsvUpdate(); 
+            intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+        }
+
+        // --- LAST.FM LOGIC ---
+        async function checkLastFm() {
+            const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${CONFIG.LAST_FM_USER}&api_key=${CONFIG.LAST_FM_API_KEY}&format=json&limit=1`;
             try {
-                const data = JSON.parse(event.data);
-                if (data.event !== 'message') return;
-
-                console.log(`[TV] Received command: ${data.message}`);
+                const response = await fetch(url);
+                const data = await response.json();
                 
-                if (data.message === 'CLOCK') {
-                    loadModule(Clock);
-                } else if (data.message === 'ARTWORK') {
-                    loadModule(Albums);
+                if (data.recenttracks && data.recenttracks.track && data.recenttracks.track.length > 0) {
+                    const track = data.recenttracks.track[0];
+                    const trackIdentifier = track.name + ' - ' + track.artist['#text'];
+                    const isNowPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
+
+                    if (!state.startupDone) {
+                        state.startupDone = true;
+                        if (isNowPlaying) switchToLastFm(track, trackIdentifier);
+                        else startCsvMode();
+                        return; 
+                    }
+
+                    if (isNowPlaying) {
+                        state.lastFmActivityTime = Date.now();
+                        if (state.currentMode === 'CSV') {
+                            if (intervals.csv) clearInterval(intervals.csv);
+                            switchToLastFm(track, trackIdentifier);
+                        } else if (trackIdentifier !== state.displayedLastFmTrack) {
+                            switchToLastFm(track, trackIdentifier);
+                        }
+                    } else if (state.currentMode === 'LASTFM' && (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS)) {
+                        startCsvMode();
+                    }
                 }
             } catch (error) {
-                console.error("[TV] Error processing command:", error);
+                if (!state.startupDone) {
+                    state.startupDone = true;
+                    startCsvMode();
+                }
             }
-        });
-        
-        socket.addEventListener('error', (error) => {
-            console.error("[TV] Connection Error:", error);
-        });
+        }
 
-        // --- AUTO-SCHEDULER (NEW) ---
-        // Checks the time every 10 seconds to trigger automatic switches
-        setInterval(() => {
-            const now = new Date();
-            const hours = now.getHours();
-            const minutes = now.getMinutes();
+        function switchToLastFm(track, trackIdentifier) {
+            state.currentMode = 'LASTFM';
+            state.lastFmTrackStartTime = Date.now();
+            logStatus("Last.fm: " + track.name);
 
-            // 6:30 AM -> Switch to Clock
-            if (hours === 6 && minutes === 30) {
-                // The loadModule function automatically ignores the request 
-                // if we are ALREADY on the clock, so this is safe.
-                loadModule(Clock);
-            } 
-            
-            // 10:00 AM -> Switch to Albums
-            else if (hours === 10 && minutes === 0) {
-                loadModule(Albums);
+            const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
+
+            fetchItunesBySearch(track.name, track.artist['#text'], albumName, (itunesImageUrl) => {
+                let finalImage = itunesImageUrl;
+                if (!finalImage && track.image) {
+                    const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
+                    if (imgObj) finalImage = imgObj['#text'];
+                }
+                if (finalImage) {
+                    performVisualTransition(finalImage, () => {
+                        state.displayedLastFmTrack = trackIdentifier;
+                    });
+                } else {
+                    logStatus("No artwork found.");
+                }
+            });
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
             }
-        }, 10000); // Check every 10s to ensure we don't miss the minute
+        }
+
+        async function loadCSV() {
+            try {
+                const response = await fetch(CONFIG.CSV_FILENAME);
+                if (!response.ok) throw new Error("Fetch failed"); 
+                parseCSV(await response.text());
+                logStatus("CSV Loaded.");
+            } catch (error) { 
+                logStatus("CSV Blocked. Using Fallback.");
+                state.csvTrackList.push({ id: '617154241' });
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(l => l.trim() !== '');
+            if (lines.length < 2) return;
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            const idIndex = headers.indexOf('id');
+            if (idIndex === -1) return;
+            const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
+                if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
+            }
+            if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
+        }
+
+        function triggerCsvUpdate() {
+            if (state.currentMode !== 'CSV') return;
+            if (state.csvTrackList.length === 0) return;
+
+            const track = state.csvTrackList[state.csvIndex];
+            if(!track) return; 
+
+            logStatus("Fetching Apple Music Data...");
+            fetchItunesById(track.id, (url) => {
+                if (url) performVisualTransition(url);
+                else {
+                     state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
+                     setTimeout(triggerCsvUpdate, 1000); 
+                }
+            });
+            state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
+        }
+
+        function fetchItunesById(appleId, callback) {
+            const cbName = 'cb_id_' + Math.floor(Math.random() * 100000);
+            const script = document.createElement('script');
+            script.src = `https://itunes.apple.com/lookup?id=${appleId}&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+            window[cbName] = function(data) {
+                cleanupScript(script, cbName);
+                if (data && data.results && data.results.length > 0) {
+                    callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+                } else callback(null);
+            };
+            script.onerror = () => { cleanupScript(script, cbName); callback(null); };
+            document.body.appendChild(script);
+        }
+
+        function fetchItunesBySearch(trackName, artistName, albumName, callback) {
+            const cbName = 'cb_search_' + Math.floor(Math.random() * 100000);
+            let query = artistName + ' ' + trackName;
+            if (albumName) query += ' ' + albumName;
+            const script = document.createElement('script');
+            script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+            window[cbName] = function(data) {
+                cleanupScript(script, cbName);
+                if (data && data.results && data.results.length > 0) {
+                    callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+                } else callback(null);
+            };
+            script.onerror = () => { cleanupScript(script, cbName); callback(null); };
+            document.body.appendChild(script);
+        }
+
+        function cleanupScript(script, cbName) {
+            if(document.body.contains(script)) document.body.removeChild(script);
+            delete window[cbName];
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+
     </script>
 </body>
 </html>
