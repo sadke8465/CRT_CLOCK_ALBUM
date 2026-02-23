@@ -213,7 +213,7 @@
             return true;
         }
 
-        // --- THE NEW LOGIC ENGINE ---
+        // --- THE UPDATED LOGIC ENGINE ---
         async function runSmartCropWithAI(originalUrl, highlightElement) {
             logStatus("Starting AI Scan...");
             const proxyLoader = new Image();
@@ -262,10 +262,23 @@
                 } else {
                     logStatus("No faces. Using SmartCrop Fallback.");
                     
-                    // If no faces, ask SmartCrop directly for a 50% box to find edges/logos
-                    smartcrop.crop(proxyLoader, { width: targetWidth, height: targetHeight }).then(result => {
+                    // 1. Ask SmartCrop to find a 150x150 focal point
+                    smartcrop.crop(proxyLoader, { width: 150, height: 150 }).then(result => {
                         const crop = result.topCrop;
-                        applyCropBox(crop.x, crop.y, crop.width, crop.height, proxyLoader.width, proxyLoader.height, highlightElement);
+                        
+                        // 2. Find the exact center of that focal area
+                        const focalX = crop.x + (crop.width / 2);
+                        const focalY = crop.y + (crop.height / 2);
+
+                        // 3. Center our 50% box over that point
+                        let startX = focalX - (targetWidth / 2);
+                        let startY = focalY - (targetHeight / 2);
+
+                        // 4. Clamp the box so it doesn't slide off the edges
+                        startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
+                        startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
+
+                        applyCropBox(startX, startY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
                     }).catch(err => logStatus("SmartCrop Failed."));
                 }
             };
