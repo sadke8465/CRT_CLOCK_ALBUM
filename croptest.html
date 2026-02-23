@@ -3,28 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Albums - Dual AI Saliency Scan</title>
+    <title>Albums - Cloud AI Saliency</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #000;
-            overflow: hidden;
-            font-family: sans-serif;
-            user-select: none; 
-            -webkit-user-select: none;
+            margin: 0; padding: 0; background-color: #000; overflow: hidden;
+            font-family: sans-serif; user-select: none; -webkit-user-select: none;
         }
         #container {
-            position: relative;
-            width: 100vw; height: 100vh;
+            position: relative; width: 100vw; height: 100vh;
             display: flex; justify-content: center; align-items: center;
-            overflow: hidden; background-color: #000;
-            cursor: pointer; 
+            overflow: hidden; background-color: #000; cursor: pointer; 
         }
         #bg-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -33,29 +22,20 @@
             transform: scale(1.4); z-index: 1; opacity: 0; transition: opacity 1s;
         }
         #art-wrapper {
-            position: relative; z-index: 10;
-            width: 90vmin; 
-            height: 90vmin;
-            display: flex;
-            box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
+            position: relative; z-index: 10; width: 90vmin; height: 90vmin;
+            display: flex; box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
             border-radius: 24px; overflow: hidden; 
         }
         #album-art {
-            width: 100%; height: 100%; 
-            object-fit: contain; 
+            width: 100%; height: 100%; object-fit: contain; 
             opacity: 0; transition: opacity 1s;
         }
         #crop-highlight {
-            position: absolute;
-            border: 4px solid red;
+            position: absolute; border: 4px solid red;
             box-shadow: 0 0 10px rgba(0,0,0,0.5), 0 0 0 9999px rgba(0, 0, 0, 0.4);
-            box-sizing: border-box;
-            pointer-events: none; 
-            z-index: 20;
-            opacity: 0;
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            box-sizing: border-box; pointer-events: none; z-index: 20;
+            opacity: 0; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
         #debug-log {
             position: absolute; top: 10px; left: 10px; z-index: 999;
             color: #00ff00; font-family: monospace; font-size: 12px;
@@ -71,7 +51,7 @@
     <div id="container">
         <div id="bg-layer"></div>
         <div id="art-wrapper">
-            <img id="album-art" src="" alt="" />
+            <img id="album-art" src="" alt="" crossorigin="anonymous" />
             <div id="crop-highlight"></div>
         </div>
         <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute;">
@@ -81,6 +61,10 @@
 
     <script>
         const CONFIG = {
+            // We removed the hardcoded token to satisfy GitHub's security rules
+            HF_API_TOKEN: localStorage.getItem('hf_token') || '', 
+            HF_MODEL_ENDPOINT: "https://api-inference.huggingface.co/models/facebook/detr-resnet-50",
+            
             CSV_FILENAME: 'applemusic-3.csv', 
             CSV_INTERVAL_MS: 500000, 
             STORE_COUNTRY: 'il', 
@@ -93,17 +77,9 @@
         };
 
         let intervals = { lastFm: null, csv: null };
-        let saliencyModel = null; 
-
         let state = {
-            startupDone: false,
-            currentMode: 'STARTUP', 
-            csvTrackList: [],
-            csvIndex: 0,
-            displayedLastFmTrack: null,     
-            lastFmTrackStartTime: 0,        
-            lastFmActivityTime: Date.now(),
-            isTransitioning: false
+            startupDone: false, currentMode: 'STARTUP', csvTrackList: [], csvIndex: 0,
+            displayedLastFmTrack: null, lastFmTrackStartTime: 0, lastFmActivityTime: Date.now(), isTransitioning: false
         };
 
         function logStatus(msg) {
@@ -114,42 +90,24 @@
 
         async function init() {
             logStatus("Initializing...");
+
+            // If no token is saved, ask the user for it
+            if (!CONFIG.HF_API_TOKEN) {
+                const token = prompt("Please enter your Hugging Face API Token (hf_...):");
+                if (token) {
+                    localStorage.setItem('hf_token', token);
+                    CONFIG.HF_API_TOKEN = token;
+                } else {
+                    logStatus("ERROR: API Token required.");
+                    return;
+                }
+            }
+
             requestWakeLock();
-            
-            await loadAIModels(); 
-            
             await loadCSV(); 
             checkLastFm(); 
             intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
             setupInputListeners();
-        }
-
-        async function loadAIModels() {
-            logStatus("Downloading AI Models...");
-            try {
-                // 1. Load Face AI
-                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
-                
-                // 2. Load the lightest MobileNet and slice it open to expose its feature map
-                logStatus("Building Saliency Matrix...");
-                const baseModel = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
-                
-                let lastConvLayer;
-                for (let i = baseModel.layers.length - 1; i >= 0; i--) {
-                    if (baseModel.layers[i].name.includes('conv') && baseModel.layers[i].name.includes('relu')) {
-                        lastConvLayer = baseModel.layers[i];
-                        break;
-                    }
-                }
-                if(!lastConvLayer) lastConvLayer = baseModel.layers[baseModel.layers.length - 2];
-                
-                saliencyModel = tf.model({inputs: baseModel.inputs, outputs: lastConvLayer.output});
-                
-                logStatus("All AI Systems Online!");
-            } catch (e) {
-                logStatus("AI Model Load Failed!");
-                console.error("Model Error:", e);
-            }
         }
 
         function setupInputListeners() {
@@ -164,9 +122,8 @@
         function triggerShuffle() {
             if (state.isTransitioning) return;
             logStatus("Shuffle tapped!");
-            if (state.currentMode !== 'CSV') {
-                startCsvMode();
-            } else {
+            if (state.currentMode !== 'CSV') startCsvMode();
+            else {
                 if (intervals.csv) clearInterval(intervals.csv);
                 triggerCsvUpdate();
                 intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
@@ -174,9 +131,7 @@
         }
 
         async function requestWakeLock() {
-            try {
-                if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
-            } catch (err) {}
+            try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch (err) {}
         }
 
         function performVisualTransition(imageUrl, onSuccessCallback) {
@@ -213,10 +168,7 @@
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
-                            
-                            // Start the Cascade AI analysis
-                            runDualAIFocalScan(imageUrl, cropHighlight);
-
+                            analyzeWithCloudAI(imageUrl, displayLoader.width, displayLoader.height, cropHighlight);
                         }, CONFIG.FADE_DURATION);
                     });
                 }, 100); 
@@ -227,103 +179,65 @@
                 logStatus("Error: Display image failed to load.");
                 setTimeout(triggerShuffle, 1000); 
             };
-
             return true;
         }
 
-        // --- THE DUAL AI CASCADE ENGINE ---
-        async function runDualAIFocalScan(originalUrl, highlightElement) {
-            logStatus("Running Face Scan...");
-            const proxyLoader = new Image();
-            proxyLoader.crossOrigin = "Anonymous";
-            proxyLoader.src = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`;
+        async function analyzeWithCloudAI(imageUrl, imgW, imgH, highlightElement) {
+            logStatus("Sending to Cloud AI...");
+            try {
+                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}`;
+                const imageResponse = await fetch(proxyUrl);
+                const imageBlob = await imageResponse.blob();
 
-            proxyLoader.onload = async () => {
-                const targetWidth = proxyLoader.width * 0.5;
-                const targetHeight = proxyLoader.height * 0.5;
-                let faces = [];
+                const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
+                    headers: { Authorization: `Bearer ${CONFIG.HF_API_TOKEN}` },
+                    method: "POST",
+                    body: imageBlob,
+                });
 
-                try {
-                    faces = await faceapi.detectAllFaces(proxyLoader, new faceapi.TinyFaceDetectorOptions());
-                } catch (e) {
-                    console.error("Face Scan failed", e);
+                const result = await hfResponse.json();
+
+                if (result.error && result.error.includes("is currently loading")) {
+                    const waitTime = Math.ceil(result.estimated_time || 20);
+                    logStatus(`Cloud AI waking up... retrying in ${waitTime}s`);
+                    setTimeout(() => analyzeWithCloudAI(imageUrl, imgW, imgH, highlightElement), waitTime * 1000);
+                    return;
                 }
 
-                // TIER 1: Human Faces
-                if (faces.length > 0) {
-                    logStatus(`Faces found: ${faces.length}. Snapping to cluster!`);
-                    
-                    let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-                    faces.forEach(face => {
-                        if (face.box.x < minX) minX = face.box.x;
-                        if (face.box.y < minY) minY = face.box.y;
-                        if (face.box.x + face.box.width > maxX) maxX = face.box.x + face.box.width;
-                        if (face.box.y + face.box.height > maxY) maxY = face.box.y + face.box.height;
-                    });
+                if (Array.isArray(result) && result.length > 0) {
+                    const best = result.sort((a, b) => b.score - a.score)[0];
+                    logStatus(`AI Focused on: ${best.label} (${Math.round(best.score * 100)}%)`);
 
-                    const faceCenterX = minX + ((maxX - minX) / 2);
-                    const faceCenterY = minY + ((maxY - minY) / 2);
+                    const box = best.box;
+                    const centerX = box.xmin + ((box.xmax - box.xmin) / 2);
+                    const centerY = box.ymin + ((box.ymax - box.ymin) / 2);
 
-                    let startX = faceCenterX - (targetWidth / 2);
-                    let startY = faceCenterY - (targetHeight / 2);
+                    const targetWidth = imgW * 0.5;
+                    const targetHeight = imgH * 0.5;
 
-                    startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
-                    startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
+                    applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, highlightElement);
 
-                    applyCropBox(startX, startY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
-
-                // TIER 2: TensorFlow Saliency Brain Scan (Fallback)
-                } else if (saliencyModel) {
-                    logStatus("No faces. Running TFJS Brain Scan...");
-                    
-                    tf.tidy(() => {
-                        const imgTensor = tf.browser.fromPixels(proxyLoader)
-                            .resizeBilinear([224, 224])
-                            .toFloat()
-                            .expandDims(0)
-                            .div(127.5).sub(1);
-                        
-                        const activationMap = saliencyModel.predict(imgTensor);
-                        const heatMap = activationMap.mean(-1).squeeze();
-                        
-                        // THE FIX: Flatten the grid before finding the max index
-                        const maxIndex = heatMap.flatten().argMax().dataSync()[0];
-                        
-                        const cols = heatMap.shape[1];
-                        const rows = heatMap.shape[0];
-                        
-                        const gridY = Math.floor(maxIndex / cols);
-                        const gridX = maxIndex % cols;
-                        
-                        const focalX = (gridX + 0.5) * (proxyLoader.width / cols);
-                        const focalY = (gridY + 0.5) * (proxyLoader.height / rows);
-
-                        let startX = focalX - (targetWidth / 2);
-                        let startY = focalY - (targetHeight / 2);
-
-                        startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
-                        startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
-
-                        applyCropBox(startX, startY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
-                    });
-                    
-                    logStatus("TFJS Saliency Scan Complete!");
                 } else {
-                    logStatus("AI Models not loaded. Waiting.");
+                    logStatus("No subjects detected. Using center.");
+                    applyAndClampBox(imgW/2, imgH/2, imgW*0.5, imgH*0.5, imgW, imgH, highlightElement);
                 }
-            };
-
-            proxyLoader.onerror = () => {
-                logStatus("Error: Proxy image blocked for AI.");
-            };
+            } catch (error) {
+                console.error("Cloud AI Error:", error);
+                logStatus("Cloud AI Connection Failed.");
+            }
         }
 
-        // Helper to draw the red box
-        function applyCropBox(x, y, w, h, imgW, imgH, el) {
-            const leftPct = (x / imgW) * 100;
-            const topPct = (y / imgH) * 100;
-            const widthPct = (w / imgW) * 100;
-            const heightPct = (h / imgH) * 100;
+        function applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, el) {
+            let startX = centerX - (targetWidth / 2);
+            let startY = centerY - (targetHeight / 2);
+
+            startX = Math.max(0, Math.min(imgW - targetWidth, startX));
+            startY = Math.max(0, Math.min(imgH - targetHeight, startY));
+
+            const leftPct = (startX / imgW) * 100;
+            const topPct = (startY / imgH) * 100;
+            const widthPct = (targetWidth / imgW) * 100;
+            const heightPct = (targetHeight / imgH) * 100;
 
             if (el) {
                 el.style.borderColor = 'red';
@@ -335,7 +249,6 @@
             }
         }
 
-        // --- HELPER: START CSV MODE ---
         function startCsvMode() {
             if (state.currentMode === 'CSV' && intervals.csv) return;
             logStatus("Starting CSV Mode");
@@ -345,7 +258,6 @@
             intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
         }
 
-        // --- LAST.FM LOGIC ---
         async function checkLastFm() {
             const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${CONFIG.LAST_FM_USER}&api_key=${CONFIG.LAST_FM_API_KEY}&format=json&limit=1`;
             try {
@@ -377,10 +289,7 @@
                     }
                 }
             } catch (error) {
-                if (!state.startupDone) {
-                    state.startupDone = true;
-                    startCsvMode();
-                }
+                if (!state.startupDone) { state.startupDone = true; startCsvMode(); }
             }
         }
 
@@ -397,21 +306,9 @@
                     const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
                     if (imgObj) finalImage = imgObj['#text'];
                 }
-                if (finalImage) {
-                    performVisualTransition(finalImage, () => {
-                        state.displayedLastFmTrack = trackIdentifier;
-                    });
-                } else {
-                    logStatus("No artwork found.");
-                }
+                if (finalImage) performVisualTransition(finalImage, () => { state.displayedLastFmTrack = trackIdentifier; });
+                else logStatus("No artwork found.");
             });
-        }
-
-        function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
         }
 
         async function loadCSV() {
@@ -438,17 +335,18 @@
                 const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
                 if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
             }
-            if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
+            if (state.csvTrackList.length > 0) {
+                for (let i = state.csvTrackList.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [state.csvTrackList[i], state.csvTrackList[j]] = [state.csvTrackList[j], state.csvTrackList[i]];
+                }
+            }
         }
 
         function triggerCsvUpdate() {
-            if (state.currentMode !== 'CSV') return;
-            if (state.csvTrackList.length === 0) return;
-
+            if (state.currentMode !== 'CSV' || state.csvTrackList.length === 0) return;
             const track = state.csvTrackList[state.csvIndex];
-            if(!track) return; 
-
-            logStatus("Fetching Apple Music Data...");
+            logStatus("Fetching Apple Music...");
             fetchItunesById(track.id, (url) => {
                 if (url) performVisualTransition(url);
                 else {
@@ -465,9 +363,8 @@
             script.src = `https://itunes.apple.com/lookup?id=${appleId}&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
             window[cbName] = function(data) {
                 cleanupScript(script, cbName);
-                if (data && data.results && data.results.length > 0) {
-                    callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
-                } else callback(null);
+                if (data && data.results && data.results.length > 0) callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+                else callback(null);
             };
             script.onerror = () => { cleanupScript(script, cbName); callback(null); };
             document.body.appendChild(script);
@@ -475,15 +372,13 @@
 
         function fetchItunesBySearch(trackName, artistName, albumName, callback) {
             const cbName = 'cb_search_' + Math.floor(Math.random() * 100000);
-            let query = artistName + ' ' + trackName;
-            if (albumName) query += ' ' + albumName;
+            let query = artistName + ' ' + trackName + (albumName ? ' ' + albumName : '');
             const script = document.createElement('script');
             script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
             window[cbName] = function(data) {
                 cleanupScript(script, cbName);
-                if (data && data.results && data.results.length > 0) {
-                    callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
-                } else callback(null);
+                if (data && data.results && data.results.length > 0) callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+                else callback(null);
             };
             script.onerror = () => { cleanupScript(script, cbName); callback(null); };
             document.body.appendChild(script);
@@ -495,7 +390,6 @@
         }
 
         window.addEventListener('DOMContentLoaded', init);
-
     </script>
 </body>
 </html>
