@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Albums - SmartCrop Test</title>
+    <title>Albums - AI Face Boost Test</title>
     
     <script src="https://unpkg.com/smartcrop@2.0.5/smartcrop.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
 
     <style>
         body {
@@ -54,7 +55,6 @@
             transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        /* Debug Tracker to see exactly what is failing */
         #debug-log {
             position: absolute; top: 10px; left: 10px; z-index: 999;
             color: #00ff00; font-family: monospace; font-size: 12px;
@@ -113,10 +113,27 @@
         async function init() {
             logStatus("Initializing...");
             requestWakeLock();
+            
+            // NEW: Load the AI models before doing anything else
+            await loadAIModels(); 
+            
             await loadCSV(); 
             checkLastFm(); 
             intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
             setupInputListeners();
+        }
+
+        async function loadAIModels() {
+            logStatus("Loading AI Face Models...");
+            try {
+                // Fetching the lightweight models directly from the CDN to bypass local file restrictions
+                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                logStatus("AI Models Loaded!");
+            } catch (e) {
+                logStatus("AI Model Load Failed!");
+                console.error("Model Error:", e);
+            }
         }
 
         function setupInputListeners() {
@@ -151,7 +168,6 @@
             state.isTransitioning = true;
             logStatus("Downloading Image...");
 
-            // 1. Load the display image normally (NO CORS restrictions, guarantees it shows)
             const displayLoader = new Image();
             displayLoader.src = imageUrl;
 
@@ -167,7 +183,7 @@
                 bgEl.style.opacity = '0';
                 if(cropHighlight) {
                     cropHighlight.style.opacity = '0';
-                    cropHighlight.style.borderColor = 'yellow'; // Set yellow until crop is proven
+                    cropHighlight.style.borderColor = 'yellow'; 
                 }
 
                 setTimeout(() => {
@@ -181,10 +197,9 @@
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
-                            logStatus("Running SmartCrop...");
                             
-                            // 2. Try to run SmartCrop in the background using a reliable Image Proxy
-                            runSmartCrop(imageUrl, cropHighlight);
+                            // Start the AI analysis in the background
+                            runSmartCropWithAI(imageUrl, cropHighlight);
 
                         }, CONFIG.FADE_DURATION);
                     });
@@ -200,40 +215,67 @@
             return true;
         }
 
-        function runSmartCrop(originalUrl, highlightElement) {
+        async function runSmartCropWithAI(originalUrl, highlightElement) {
+            logStatus("Starting AI Scan...");
             const proxyLoader = new Image();
             proxyLoader.crossOrigin = "Anonymous";
-            // Use wsrv.nl proxy to bypass Apple's strict CORS rules
             proxyLoader.src = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`;
 
-            proxyLoader.onload = () => {
-                const totalArea = proxyLoader.width * proxyLoader.height;
-                const targetSide = Math.max(1, Math.round(Math.sqrt(totalArea / 4)));
+            proxyLoader.onload = async () => {
+                let aiBoosts = [];
 
-                smartcrop.crop(proxyLoader, { width: targetSide, height: targetSide }).then(result => {
-                    logStatus("SmartCrop Successful!");
+                try {
+                    // 1. Ask the Neural Network to find all faces in the image
+                    const detections = await faceapi.detectAllFaces(proxyLoader, new faceapi.TinyFaceDetectorOptions());
+                    logStatus(`Faces found: ${detections.length}`);
+
+                    // 2. Map the faces into a format SmartCrop understands as a "Boost"
+                    aiBoosts = detections.map(det => ({
+                        x: det.box.x,
+                        y: det.box.y,
+                        width: det.box.width,
+                        height: det.box.height,
+                        weight: 1.0 // High priority
+                    }));
+                } catch (e) {
+                    logStatus("AI Scan failed, using standard math.");
+                    console.error(e);
+                }
+
+                // 3. Run SmartCrop, passing the AI face boosts (if any were found)
+                smartcrop.crop(proxyLoader, { width: 100, height: 100, boost: aiBoosts }).then(result => {
                     const crop = result.topCrop;
-                    const leftPct = (crop.x / proxyLoader.width) * 100;
-                    const topPct = (crop.y / proxyLoader.height) * 100;
-                    const widthPct = (crop.width / proxyLoader.width) * 100;
-                    const heightPct = (crop.height / proxyLoader.height) * 100;
+                    
+                    const focalX = crop.x + (crop.width / 2);
+                    const focalY = crop.y + (crop.height / 2);
+
+                    const targetWidth = proxyLoader.width * 0.5;
+                    const targetHeight = proxyLoader.height * 0.5;
+
+                    let startX = focalX - (targetWidth / 2);
+                    let startY = focalY - (targetHeight / 2);
+
+                    startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
+                    startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
+
+                    const leftPct = (startX / proxyLoader.width) * 100;
+                    const topPct = (startY / proxyLoader.height) * 100;
 
                     if(highlightElement) {
                         highlightElement.style.borderColor = 'red';
                         highlightElement.style.left = leftPct + '%';
                         highlightElement.style.top = topPct + '%';
-                        highlightElement.style.width = widthPct + '%';
-                        highlightElement.style.height = heightPct + '%';
+                        highlightElement.style.width = '50%';
+                        highlightElement.style.height = '50%';
                         highlightElement.style.opacity = '1';
                     }
                 }).catch(err => {
-                    logStatus("SmartCrop Failed.");
-                    console.error(err);
+                    logStatus("Crop Calculation Failed.");
                 });
             };
 
             proxyLoader.onerror = () => {
-                logStatus("Error: Proxy image blocked.");
+                logStatus("Error: Proxy image blocked for AI.");
             };
         }
 
@@ -324,7 +366,6 @@
                 logStatus("CSV Loaded.");
             } catch (error) { 
                 logStatus("CSV Blocked. Using Fallback.");
-                // Fallback track (Daft Punk) if the mobile app blocks local files
                 state.csvTrackList.push({ id: '617154241' });
             }
         }
