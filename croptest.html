@@ -161,7 +161,6 @@
             logStatus("Downloading Image...");
 
             const displayLoader = new Image();
-            // CRITICAL FIX: Tell browser to request CORS headers so we can draw it to a canvas later
             displayLoader.crossOrigin = "anonymous"; 
             displayLoader.src = imageUrl;
 
@@ -185,8 +184,6 @@
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
-                            
-                            // Pass the loaded Image object directly to the AI Engine
                             analyzeWithCloudAI(displayLoader, displayLoader.width, displayLoader.height, cropHighlight);
                         }, CONFIG.FADE_DURATION);
                     });
@@ -200,14 +197,12 @@
             return true;
         }
 
-        // --- THE CANVAS "SCREENSHOT" AI ENGINE ---
         async function analyzeWithCloudAI(imgObj, imgW, imgH, highlightElement) {
             logStatus("Compressing for AI...");
             setLight('waiting');
             try {
-                // 1. Draw the image to a hidden canvas to bypass network block
                 const canvas = document.createElement('canvas');
-                const maxSize = 600; // Compress down to max 600px
+                const maxSize = 600; 
                 let w = imgW, h = imgH;
                 
                 if (w > maxSize || h > maxSize) {
@@ -218,36 +213,34 @@
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(imgObj, 0, 0, w, h);
 
-                // 2. Convert Canvas to a binary Blob
                 const imageBlob = await new Promise((resolve, reject) => {
                     canvas.toBlob((blob) => {
                         if (blob) resolve(blob);
-                        else reject(new Error("Canvas conversion blocked by Apple CORS."));
+                        else reject(new Error("Canvas block"));
                     }, 'image/jpeg', 0.8);
                 });
 
                 logStatus("Sending to Cloud AI...");
 
-                // 3. Post Blob to Hugging Face
+                // IOS FIX: Explicitly added Content-Type to bypass Safari Preflight blocks
                 const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
-                    headers: { Authorization: `Bearer ${CONFIG.HF_API_TOKEN}` },
+                    headers: { 
+                        "Authorization": `Bearer ${CONFIG.HF_API_TOKEN}`,
+                        "Content-Type": "image/jpeg"
+                    },
                     method: "POST",
                     body: imageBlob,
                 });
 
-                // Catch Token / Auth Errors
                 if (hfResponse.status === 401) {
                     localStorage.removeItem('hf_token');
-                    throw new Error("Invalid API Token. Tap red light to reset.");
+                    throw new Error("Invalid Token. Tap red light to reset.");
                 }
 
-                if (!hfResponse.ok) {
-                    throw new Error(`HF Server Error: ${hfResponse.status}`);
-                }
+                if (!hfResponse.ok) throw new Error(`Server ${hfResponse.status}`);
 
                 const result = await hfResponse.json();
 
-                // Handle AI Loading State
                 if (result.error && result.error.includes("is currently loading")) {
                     const waitTime = Math.ceil(result.estimated_time || 20);
                     logStatus(`AI Waking up... (${waitTime}s)`);
@@ -256,7 +249,6 @@
                     return;
                 }
 
-                // 4. Process Detected Objects
                 if (Array.isArray(result) && result.length > 0) {
                     setLight('online');
                     const best = result.sort((a, b) => b.score - a.score)[0];
@@ -266,7 +258,6 @@
                     const centerX = box.xmin + ((box.xmax - box.xmin) / 2);
                     const centerY = box.ymin + ((box.ymax - box.ymin) / 2);
                     
-                    // We must scale the coordinates back up since we compressed the image
                     const scaleX = imgW / w;
                     const scaleY = imgH / h;
                     
@@ -342,7 +333,6 @@
                     const img = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
                     url = img ? img['#text'] : null;
                 }
-                // Push through proxy to ensure CORS doesn't block the canvas later
                 if (url) performVisualTransition(`https://wsrv.nl/?url=${encodeURIComponent(url)}`, () => { state.displayedLastFmTrack = id; });
             });
         }
@@ -368,7 +358,6 @@
             if (state.currentMode !== 'CSV' || !state.csvTrackList.length) return;
             const track = state.csvTrackList[state.csvIndex];
             fetchItunesById(track.id, (url) => {
-                // Push through proxy to ensure CORS doesn't block the canvas later
                 if (url) performVisualTransition(`https://wsrv.nl/?url=${encodeURIComponent(url)}`, null);
                 else setTimeout(triggerCsvUpdate, 1000);
             });
