@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Albums - SmartCrop Quarter Square</title>
+    
+    <script src="https://unpkg.com/smartcrop@2.0.5/smartcrop.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        #container {
+            position: relative;
+            width: 100vw; height: 100vh;
+            display: flex; justify-content: center; align-items: center;
+            overflow: hidden; background-color: #000;
+        }
+        #bg-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-size: cover; background-position: center;
+            filter: blur(120px) brightness(0.9);
+            transform: scale(1.4); z-index: 1; opacity: 0; transition: opacity 1s;
+        }
+        #art-wrapper {
+            position: relative; z-index: 10;
+            height: 90vh; aspect-ratio: 1 / 1;
+            max-width: 90vw; max-height: 90vh;
+            display: flex;
+            box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
+            border-radius: 24px; overflow: hidden; 
+        }
+        #album-art {
+            width: 100%; height: 100%; object-fit: contain; 
+            opacity: 0; transition: opacity 1s;
+        }
+        
+        /* 2. Styling for the Red Square Overlay */
+        #crop-highlight {
+            position: absolute;
+            border: 4px solid red;
+            /* Added a slight shadow to make the red pop more */
+            box-shadow: 0 0 10px rgba(0,0,0,0.5), 0 0 0 9999px rgba(0, 0, 0, 0.4);
+            box-sizing: border-box;
+            pointer-events: none; 
+            z-index: 20;
+            opacity: 0;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <div id="bg-layer"></div>
+        <div id="art-wrapper">
+            <img id="album-art" src="" alt="" crossorigin="anonymous" />
+            <div id="crop-highlight"></div>
+        </div>
+        <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute;">
+            <source src="data:video/mp4;base64,AAAAHGZ0eXBNNEVAAAAAAAEAAAAAAABtZGF0AAAAEAAACAAAABAAAAA=" type="video/mp4">
+        </video>
+    </div>
+
+    <script>
+        /**
+         * ALBUMS MODULE (SmartCrop Quarter Square Edition)
+         */
+
+        const CONFIG = {
+            CSV_FILENAME: 'applemusic-3.csv', 
+            CSV_INTERVAL_MS: 500000, 
+            STORE_COUNTRY: 'il', 
+            
+            FADE_DURATION: 700, 
+            BLACK_HOLD_DURATION: 200, 
+            
+            LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
+            LAST_FM_USER: 'Noamsadi95',
+            LAST_FM_POLL_INTERVAL: 5000, 
+            LAST_FM_TIMEOUT_MS: 20 * 60 * 1000
+            // Removed hardcoded CROP settings here
+        };
+
+        let intervals = { lastFm: null, csv: null };
+
+        let state = {
+            startupDone: false,
+            currentMode: 'STARTUP', 
+            csvTrackList: [],
+            csvIndex: 0,
+            displayedLastFmTrack: null,     
+            lastFmTrackStartTime: 0,        
+            lastFmActivityTime: Date.now(),
+            isTransitioning: false
+        };
+
+        async function init() {
+            console.log("[Albums] Initializing...");
+            requestWakeLock();
+            await loadCSV(); 
+            checkLastFm(); 
+            intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
+            setupKeyboardListeners();
+        }
+
+        function setupKeyboardListeners() {
+            document.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === 's') {
+                    console.log("[Albums] Shuffle triggered manually.");
+                    if (state.currentMode !== 'CSV') {
+                        startCsvMode();
+                    } else {
+                        if (intervals.csv) clearInterval(intervals.csv);
+                        triggerCsvUpdate();
+                        intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+                    }
+                }
+            });
+        }
+
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
+            } catch (err) {
+                const vid = document.getElementById('wake-video');
+                if(vid) vid.play().catch(e => {});
+            }
+        }
+
+        // --- VISUAL TRANSITION & SMART CROP ENGINE ---
+        function performVisualTransition(imageUrl, onSuccessCallback) {
+            if (state.isTransitioning) return false; 
+            state.isTransitioning = true;
+
+            const loader = new Image();
+            loader.crossOrigin = "Anonymous"; 
+            loader.src = imageUrl;
+
+            loader.onload = () => {
+                const imgEl = document.getElementById('album-art');
+                const bgEl = document.getElementById('bg-layer');
+                const cropHighlight = document.getElementById('crop-highlight');
+
+                if (!imgEl || !bgEl) return; 
+
+                imgEl.style.opacity = '0';
+                bgEl.style.opacity = '0';
+                if(cropHighlight) cropHighlight.style.opacity = '0';
+
+                // --- SMART CROP CALCULATION ---
+                // 1. Calculate total area of the loaded image
+                const totalArea = loader.width * loader.height;
+                
+                // 2. Target area is 1/4 of total area
+                const targetArea = totalArea / 4;
+                
+                // 3. Since we want a square, the side length is the square root of the area.
+                const targetSide = Math.round(Math.sqrt(targetArea));
+
+                // 4. Run SmartCrop with calculated square dimensions
+                smartcrop.crop(loader, { 
+                    width: targetSide, 
+                    height: targetSide 
+                }).then(function(result) {
+                    const crop = result.topCrop;
+                    
+                    // Convert crop pixel coordinates to percentages relative to the image
+                    const leftPct = (crop.x / loader.width) * 100;
+                    const topPct = (crop.y / loader.height) * 100;
+                    const widthPct = (crop.width / loader.width) * 100;
+                    const heightPct = (crop.height / loader.height) * 100;
+
+                    // Apply to the red square overlay
+                    if(cropHighlight) {
+                        cropHighlight.style.left = leftPct + '%';
+                        cropHighlight.style.top = topPct + '%';
+                        cropHighlight.style.width = widthPct + '%';
+                        cropHighlight.style.height = heightPct + '%';
+                    }
+                });
+
+                setTimeout(() => {
+                    if (!document.getElementById('album-art')) return;
+
+                    imgEl.src = imageUrl;
+                    bgEl.style.backgroundImage = `url('${imageUrl}')`;
+
+                    requestAnimationFrame(() => {
+                        imgEl.style.opacity = '1';
+                        bgEl.style.opacity = '1';
+                        
+                        // Fade in the red box shortly after the image
+                        setTimeout(() => {
+                            if(cropHighlight) cropHighlight.style.opacity = '1';
+                        }, 300);
+
+                        setTimeout(() => { 
+                            state.isTransitioning = false;
+                            if(onSuccessCallback) onSuccessCallback();
+                        }, CONFIG.FADE_DURATION);
+                    });
+
+                }, CONFIG.FADE_DURATION + CONFIG.BLACK_HOLD_DURATION + 100); 
+            };
+
+            loader.onerror = () => {
+                state.isTransitioning = false;
+                console.warn("Failed to load image:", imageUrl);
+            };
+
+            return true;
+        }
+
+        // --- HELPER: START CSV MODE ---
+        function startCsvMode() {
+            if (state.currentMode === 'CSV' && intervals.csv) return;
+
+            console.log("Starting CSV Mode");
+            
+            state.currentMode = 'CSV';
+            
+            if (intervals.csv) clearInterval(intervals.csv);
+            triggerCsvUpdate(); 
+            intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
+        }
+
+        // --- LAST.FM LOGIC ---
+        async function checkLastFm() {
+            const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${CONFIG.LAST_FM_USER}&api_key=${CONFIG.LAST_FM_API_KEY}&format=json&limit=1`;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.recenttracks && data.recenttracks.track && data.recenttracks.track.length > 0) {
+                    const track = data.recenttracks.track[0];
+                    const trackIdentifier = track.name + ' - ' + track.artist['#text'];
+                    const isNowPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
+
+                    if (!state.startupDone) {
+                        state.startupDone = true;
+                        if (isNowPlaying) {
+                            switchToLastFm(track, trackIdentifier);
+                        } else {
+                            startCsvMode();
+                        }
+                        return; 
+                    }
+
+                    if (isNowPlaying) {
+                        state.lastFmActivityTime = Date.now();
+                        
+                        if (state.currentMode === 'CSV') {
+                            if (intervals.csv) clearInterval(intervals.csv);
+                            switchToLastFm(track, trackIdentifier);
+                        } 
+                        else if (trackIdentifier !== state.displayedLastFmTrack) {
+                            switchToLastFm(track, trackIdentifier);
+                        }
+
+                    } else {
+                        if (state.currentMode === 'LASTFM') {
+                            if (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS) {
+                                startCsvMode();
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Last.fm Error", error);
+                if (!state.startupDone) {
+                    state.startupDone = true;
+                    startCsvMode();
+                }
+            }
+        }
+
+        function switchToLastFm(track, trackIdentifier) {
+            state.currentMode = 'LASTFM';
+            state.lastFmTrackStartTime = Date.now();
+
+            const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
+
+            fetchItunesBySearch(track.name, track.artist['#text'], albumName, (itunesImageUrl) => {
+                let finalImage = itunesImageUrl;
+                if (!finalImage && track.image) {
+                    const imgObj = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
+                    if (imgObj) finalImage = imgObj['#text'];
+                }
+
+                if (finalImage) {
+                    performVisualTransition(finalImage, () => {
+                        state.displayedLastFmTrack = trackIdentifier;
+                    });
+                }
+            });
+        }
+
+        // --- HELPERS ---
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        async function loadCSV() {
+            try {
+                const response = await fetch(CONFIG.CSV_FILENAME);
+                if (!response.ok) {
+                    console.warn("CSV not found.");
+                    return; 
+                }
+                parseCSV(await response.text());
+            } catch (error) { 
+                console.error("CSV Load Error:", error); 
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(l => l.trim() !== '');
+            if (lines.length < 2) return;
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+            const idIndex = headers.indexOf('id');
+            if (idIndex === -1) return;
+            const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
+                if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
+            }
+            if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
+        }
+
+        function triggerCsvUpdate() {
+            if (state.currentMode !== 'CSV') return;
+            if (state.csvTrackList.length === 0) return;
+
+            const track = state.csvTrackList[state.csvIndex];
+            if(!track) return; 
+
+            fetchItunesById(track.id, (url) => {
+                if (url) performVisualTransition(url);
+                else {
+                     state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
+                     setTimeout(triggerCsvUpdate, 1000); 
+                }
+            });
+            state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
+        }
+
+        function fetchItunesById(appleId, callback) {
+            const cbName = 'cb_id_' + Math.floor(Math.random() * 100000);
+            const script = document.createElement('script');
+            script.src = `https://itunes.apple.com/lookup?id=${appleId}&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+            window[cbName] = function(data) {
+                cleanupScript(script, cbName);
+                if (data && data.results && data.results.length > 0) {
+                    callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+                } else callback(null);
+            };
+            script.onerror = () => { cleanupScript(script, cbName); callback(null); };
+            document.body.appendChild(script);
+        }
+
+        function fetchItunesBySearch(trackName, artistName, albumName, callback) {
+            const cbName = 'cb_search_' + Math.floor(Math.random() * 100000);
+            let query = artistName + ' ' + trackName;
+            if (albumName) query += ' ' + albumName;
+            const script = document.createElement('script');
+            script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+            window[cbName] = function(data) {
+                cleanupScript(script, cbName);
+                if (data && data.results && data.results.length > 0) {
+                    callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+                } else callback(null);
+            };
+            script.onerror = () => { cleanupScript(script, cbName); callback(null); };
+            document.body.appendChild(script);
+        }
+
+        function cleanupScript(script, cbName) {
+            if(document.body.contains(script)) document.body.removeChild(script);
+            delete window[cbName];
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+
+    </script>
+</body>
+</html>
