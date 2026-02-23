@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Albums - Cloud AI Saliency</title>
     
     <style>
@@ -37,13 +37,19 @@
             opacity: 0; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         #debug-log {
-            position: absolute; top: 10px; left: 10px; z-index: 999;
+            position: absolute; 
+            top: calc(10px + env(safe-area-inset-top)); 
+            left: max(10px, env(safe-area-inset-left)); 
+            z-index: 999;
             color: #00ff00; font-family: monospace; font-size: 12px;
             background: rgba(0,0,0,0.8); padding: 8px; border-radius: 8px;
             pointer-events: none; max-width: 80vw; word-wrap: break-word;
         }
         #status-light {
-            position: absolute; top: 15px; right: 15px; z-index: 1000;
+            position: absolute; 
+            top: calc(15px + env(safe-area-inset-top)); 
+            right: max(15px, env(safe-area-inset-right)); 
+            z-index: 1000;
             width: 16px; height: 16px; border-radius: 50%;
             background-color: #555; border: 2px solid #fff;
             box-shadow: 0 0 10px rgba(255,255,255,0.3);
@@ -222,14 +228,16 @@
 
                 logStatus("Sending to Cloud AI...");
 
-                // IOS FIX: Explicitly added Content-Type to bypass Safari Preflight blocks
+                // PROPER IOS FIX: Convert to raw buffer to bypass Safari's canvas Blob memory bugs
+                const imageBuffer = await imageBlob.arrayBuffer();
+
                 const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
                     headers: { 
                         "Authorization": `Bearer ${CONFIG.HF_API_TOKEN}`,
                         "Content-Type": "image/jpeg"
                     },
                     method: "POST",
-                    body: imageBlob,
+                    body: imageBuffer,
                 });
 
                 if (hfResponse.status === 401) {
