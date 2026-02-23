@@ -42,7 +42,6 @@
             background: rgba(0,0,0,0.8); padding: 8px; border-radius: 8px;
             pointer-events: none; max-width: 80vw; word-wrap: break-word;
         }
-        /* Status Light */
         #status-light {
             position: absolute; top: 15px; right: 15px; z-index: 1000;
             width: 16px; height: 16px; border-radius: 50%;
@@ -137,7 +136,6 @@
                 if (e.key.toLowerCase() === 's') triggerShuffle();
             });
             document.getElementById('container').addEventListener('click', (e) => {
-                // Prevent shuffle if tapping the status light
                 if(e.target.id !== 'status-light') triggerShuffle();
             });
         }
@@ -163,6 +161,8 @@
             logStatus("Downloading Image...");
 
             const displayLoader = new Image();
+            // CRITICAL FIX: Tell browser to request CORS headers so we can draw it to a canvas later
+            displayLoader.crossOrigin = "anonymous"; 
             displayLoader.src = imageUrl;
 
             displayLoader.onload = () => {
@@ -171,79 +171,92 @@
                 const cropHighlight = document.getElementById('crop-highlight');
                 if (!imgEl || !bgEl) return; 
 
+                imgEl.src = imageUrl;
+                bgEl.style.backgroundImage = `url('${imageUrl}')`;
+
                 imgEl.style.opacity = '0';
                 bgEl.style.opacity = '0';
                 if(cropHighlight) cropHighlight.style.opacity = '0';
 
                 setTimeout(() => {
-                    imgEl.src = imageUrl;
-                    bgEl.style.backgroundImage = `url('${imageUrl}')`;
                     requestAnimationFrame(() => {
                         imgEl.style.opacity = '1';
                         bgEl.style.opacity = '1';
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
-                            analyzeWithCloudAI(imageUrl, displayLoader.width, displayLoader.height, cropHighlight);
+                            
+                            // Pass the loaded Image object directly to the AI Engine
+                            analyzeWithCloudAI(displayLoader, displayLoader.width, displayLoader.height, cropHighlight);
                         }, CONFIG.FADE_DURATION);
                     });
                 }, 100); 
             };
             displayLoader.onerror = () => {
                 state.isTransitioning = false;
-                logStatus("Error: Image failed.");
+                logStatus("Error: Image failed to load.");
                 setTimeout(triggerShuffle, 1000); 
             };
             return true;
         }
 
-        async function analyzeWithCloudAI(imageUrl, imgW, imgH, highlightElement) {
-            logStatus("Connecting to Cloud AI...");
+        // --- THE CANVAS "SCREENSHOT" AI ENGINE ---
+        async function analyzeWithCloudAI(imgObj, imgW, imgH, highlightElement) {
+            logStatus("Compressing for AI...");
             setLight('waiting');
             try {
-                // FORCE RESIZE & JPEG to prevent mobile fetch crashes or HF 2MB limits
-                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=600&output=jpg`;
-                const imageResponse = await fetch(proxyUrl);
+                // 1. Draw the image to a hidden canvas to bypass network block
+                const canvas = document.createElement('canvas');
+                const maxSize = 600; // Compress down to max 600px
+                let w = imgW, h = imgH;
                 
-                if (!imageResponse.ok) {
-                    throw new Error(`Proxy blocked image (${imageResponse.status})`);
+                if (w > maxSize || h > maxSize) {
+                    if (w > h) { h = Math.round((h * maxSize) / w); w = maxSize; } 
+                    else { w = Math.round((w * maxSize) / h); h = maxSize; }
                 }
-                
-                const imageBlob = await imageResponse.blob();
+                canvas.width = w; canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(imgObj, 0, 0, w, h);
 
+                // 2. Convert Canvas to a binary Blob
+                const imageBlob = await new Promise((resolve, reject) => {
+                    canvas.toBlob((blob) => {
+                        if (blob) resolve(blob);
+                        else reject(new Error("Canvas conversion blocked by Apple CORS."));
+                    }, 'image/jpeg', 0.8);
+                });
+
+                logStatus("Sending to Cloud AI...");
+
+                // 3. Post Blob to Hugging Face
                 const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
                     headers: { Authorization: `Bearer ${CONFIG.HF_API_TOKEN}` },
                     method: "POST",
                     body: imageBlob,
                 });
 
-                const textResult = await hfResponse.text();
-                let result;
-                try {
-                    result = JSON.parse(textResult);
-                } catch (e) {
-                    throw new Error(`Bad API JSON: ${textResult.substring(0,20)}`);
-                }
-
-                // Handle Loading
-                if (result.error && result.error.includes("is currently loading")) {
-                    const waitTime = Math.ceil(result.estimated_time || 20);
-                    logStatus(`AI Waking up... (${waitTime}s)`);
-                    setLight('waiting');
-                    setTimeout(() => analyzeWithCloudAI(imageUrl, imgW, imgH, highlightElement), waitTime * 1000);
-                    return;
-                }
-
-                // Handle Auth Error explicitly
-                if (result.error && (result.error.includes("Authorization") || result.error.includes("token") || hfResponse.status === 401)) {
+                // Catch Token / Auth Errors
+                if (hfResponse.status === 401) {
                     localStorage.removeItem('hf_token');
                     throw new Error("Invalid API Token. Tap red light to reset.");
                 }
 
-                if (result.error) {
-                    throw new Error(`API: ${result.error}`);
+                if (!hfResponse.ok) {
+                    throw new Error(`HF Server Error: ${hfResponse.status}`);
                 }
 
+                const result = await hfResponse.json();
+
+                // Handle AI Loading State
+                if (result.error && result.error.includes("is currently loading")) {
+                    const waitTime = Math.ceil(result.estimated_time || 20);
+                    logStatus(`AI Waking up... (${waitTime}s)`);
+                    setLight('waiting');
+                    setTimeout(() => analyzeWithCloudAI(imgObj, imgW, imgH, highlightElement), waitTime * 1000);
+                    return;
+                }
+
+                // 4. Process Detected Objects
                 if (Array.isArray(result) && result.length > 0) {
                     setLight('online');
                     const best = result.sort((a, b) => b.score - a.score)[0];
@@ -252,7 +265,12 @@
                     const box = best.box;
                     const centerX = box.xmin + ((box.xmax - box.xmin) / 2);
                     const centerY = box.ymin + ((box.ymax - box.ymin) / 2);
-                    applyAndClampBox(centerX, centerY, imgW * 0.5, imgH * 0.5, imgW, imgH, highlightElement);
+                    
+                    // We must scale the coordinates back up since we compressed the image
+                    const scaleX = imgW / w;
+                    const scaleY = imgH / h;
+                    
+                    applyAndClampBox(centerX * scaleX, centerY * scaleY, imgW * 0.5, imgH * 0.5, imgW, imgH, highlightElement);
                 } else {
                     logStatus("No subjects. Centering.");
                     setLight('online');
@@ -324,7 +342,8 @@
                     const img = track.image.find(i => i.size === 'extralarge') || track.image[track.image.length - 1];
                     url = img ? img['#text'] : null;
                 }
-                if (url) performVisualTransition(url, () => { state.displayedLastFmTrack = id; });
+                // Push through proxy to ensure CORS doesn't block the canvas later
+                if (url) performVisualTransition(`https://wsrv.nl/?url=${encodeURIComponent(url)}`, () => { state.displayedLastFmTrack = id; });
             });
         }
 
@@ -349,7 +368,8 @@
             if (state.currentMode !== 'CSV' || !state.csvTrackList.length) return;
             const track = state.csvTrackList[state.csvIndex];
             fetchItunesById(track.id, (url) => {
-                if (url) performVisualTransition(url);
+                // Push through proxy to ensure CORS doesn't block the canvas later
+                if (url) performVisualTransition(`https://wsrv.nl/?url=${encodeURIComponent(url)}`, null);
                 else setTimeout(triggerCsvUpdate, 1000);
             });
             state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
