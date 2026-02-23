@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Albums - AI Face Boost Test</title>
+    <title>Albums - Dual AI Saliency Scan</title>
     
-    <script src="https://unpkg.com/smartcrop@2.0.5/smartcrop.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
 
     <style>
         body {
@@ -92,6 +93,7 @@
         };
 
         let intervals = { lastFm: null, csv: null };
+        let saliencyModel = null; // Holds our sliced TFJS model
 
         let state = {
             startupDone: false,
@@ -123,11 +125,29 @@
         }
 
         async function loadAIModels() {
-            logStatus("Loading AI Face Models...");
+            logStatus("Downloading AI Models...");
             try {
-                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
-                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-                logStatus("AI Models Loaded!");
+                // 1. Load Face AI
+                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                
+                // 2. Load the lightest MobileNet (only ~2MB) and slice it open to expose its feature map
+                logStatus("Building Saliency Matrix...");
+                const baseModel = await tf.loadLayersModel('https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
+                
+                let lastConvLayer;
+                // Find the deep convolution layer right before it flattens the image
+                for (let i = baseModel.layers.length - 1; i >= 0; i--) {
+                    if (baseModel.layers[i].name.includes('conv') && baseModel.layers[i].name.includes('relu')) {
+                        lastConvLayer = baseModel.layers[i];
+                        break;
+                    }
+                }
+                if(!lastConvLayer) lastConvLayer = baseModel.layers[baseModel.layers.length - 2];
+                
+                // Create our custom brain-scan model
+                saliencyModel = tf.model({inputs: baseModel.inputs, outputs: lastConvLayer.output});
+                
+                logStatus("All AI Systems Online!");
             } catch (e) {
                 logStatus("AI Model Load Failed!");
                 console.error("Model Error:", e);
@@ -196,8 +216,8 @@
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
                             
-                            // Start the AI analysis in the background
-                            runSmartCropWithAI(imageUrl, cropHighlight);
+                            // Start the Cascade AI analysis
+                            runDualAIFocalScan(imageUrl, cropHighlight);
 
                         }, CONFIG.FADE_DURATION);
                     });
@@ -213,30 +233,28 @@
             return true;
         }
 
-        // --- THE UPDATED LOGIC ENGINE ---
-        async function runSmartCropWithAI(originalUrl, highlightElement) {
-            logStatus("Starting AI Scan...");
+        // --- THE DUAL AI CASCADE ENGINE ---
+        async function runDualAIFocalScan(originalUrl, highlightElement) {
+            logStatus("Running Face Scan...");
             const proxyLoader = new Image();
             proxyLoader.crossOrigin = "Anonymous";
             proxyLoader.src = `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}`;
 
             proxyLoader.onload = async () => {
-                // We want our box to be exactly 50% of the image size
                 const targetWidth = proxyLoader.width * 0.5;
                 const targetHeight = proxyLoader.height * 0.5;
-                
                 let faces = [];
 
                 try {
                     faces = await faceapi.detectAllFaces(proxyLoader, new faceapi.TinyFaceDetectorOptions());
                 } catch (e) {
-                    console.error("AI Scan failed", e);
+                    console.error("Face Scan failed", e);
                 }
 
+                // TIER 1: Human Faces
                 if (faces.length > 0) {
-                    logStatus(`Faces found: ${faces.length}. Snapping to face!`);
+                    logStatus(`Faces found: ${faces.length}. Snapping to cluster!`);
                     
-                    // 1. Find the boundaries of ALL faces combined
                     let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
                     faces.forEach(face => {
                         if (face.box.x < minX) minX = face.box.x;
@@ -245,41 +263,62 @@
                         if (face.box.y + face.box.height > maxY) maxY = face.box.y + face.box.height;
                     });
 
-                    // 2. Find the exact center point between all those faces
                     const faceCenterX = minX + ((maxX - minX) / 2);
                     const faceCenterY = minY + ((maxY - minY) / 2);
 
-                    // 3. Center our 50% box over that point
                     let startX = faceCenterX - (targetWidth / 2);
                     let startY = faceCenterY - (targetHeight / 2);
 
-                    // 4. Clamp the box so it doesn't slide off the edges of the album
                     startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
                     startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
 
                     applyCropBox(startX, startY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
 
-                } else {
-                    logStatus("No faces. Using SmartCrop Fallback.");
+                // TIER 2: TensorFlow Saliency Brain Scan (Fallback)
+                } else if (saliencyModel) {
+                    logStatus("No faces. Running TFJS Brain Scan...");
                     
-                    // 1. Ask SmartCrop to find a 150x150 focal point
-                    smartcrop.crop(proxyLoader, { width: 150, height: 150 }).then(result => {
-                        const crop = result.topCrop;
+                    // tf.tidy ensures we don't crash the mobile device by instantly deleting tensors after math
+                    tf.tidy(() => {
+                        // 1. Process image for MobileNet (resize to 224x224, normalize pixels between -1 and 1)
+                        const imgTensor = tf.browser.fromPixels(proxyLoader)
+                            .resizeBilinear([224, 224])
+                            .toFloat()
+                            .expandDims(0)
+                            .div(127.5).sub(1);
                         
-                        // 2. Find the exact center of that focal area
-                        const focalX = crop.x + (crop.width / 2);
-                        const focalY = crop.y + (crop.height / 2);
+                        // 2. Extract the neural activation map (usually a 7x7 grid showing what the AI finds "interesting")
+                        const activationMap = saliencyModel.predict(imgTensor);
+                        
+                        // 3. Compress the 256 feature channels down into a single 2D heat map
+                        const heatMap = activationMap.mean(-1).squeeze();
+                        
+                        // 4. Find the single hottest spot on the grid
+                        const maxIndex = heatMap.argMax().dataSync()[0];
+                        const cols = heatMap.shape[1];
+                        const rows = heatMap.shape[0];
+                        
+                        const gridY = Math.floor(maxIndex / cols);
+                        const gridX = maxIndex % cols;
+                        
+                        // 5. Convert that grid coordinate back to the full-size image pixel coordinate
+                        const focalX = (gridX + 0.5) * (proxyLoader.width / cols);
+                        const focalY = (gridY + 0.5) * (proxyLoader.height / rows);
 
-                        // 3. Center our 50% box over that point
+                        // 6. Draw the 50% box centered over the hottest pixel
                         let startX = focalX - (targetWidth / 2);
                         let startY = focalY - (targetHeight / 2);
 
-                        // 4. Clamp the box so it doesn't slide off the edges
+                        // 7. Clamp to the image boundaries
                         startX = Math.max(0, Math.min(proxyLoader.width - targetWidth, startX));
                         startY = Math.max(0, Math.min(proxyLoader.height - targetHeight, startY));
 
                         applyCropBox(startX, startY, targetWidth, targetHeight, proxyLoader.width, proxyLoader.height, highlightElement);
-                    }).catch(err => logStatus("SmartCrop Failed."));
+                    });
+                    
+                    logStatus("TFJS Saliency Scan Complete!");
+                } else {
+                    logStatus("AI Models not loaded. Waiting.");
                 }
             };
 
