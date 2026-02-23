@@ -39,15 +39,16 @@
         #debug-log {
             position: absolute; top: 10px; left: 10px; z-index: 999;
             color: #00ff00; font-family: monospace; font-size: 12px;
-            background: rgba(0,0,0,0.6); padding: 8px; border-radius: 8px;
-            pointer-events: none;
+            background: rgba(0,0,0,0.8); padding: 8px; border-radius: 8px;
+            pointer-events: none; max-width: 80vw; word-wrap: break-word;
         }
-        /* New Status Light */
+        /* Status Light */
         #status-light {
             position: absolute; top: 15px; right: 15px; z-index: 1000;
-            width: 12px; height: 12px; border-radius: 50%;
+            width: 16px; height: 16px; border-radius: 50%;
             background-color: #555; border: 2px solid #fff;
             box-shadow: 0 0 10px rgba(255,255,255,0.3);
+            cursor: pointer;
         }
         .ai-online { background-color: #00ff00 !important; box-shadow: 0 0 15px #00ff00 !important; }
         .ai-offline { background-color: #ff0000 !important; box-shadow: 0 0 15px #ff0000 !important; }
@@ -57,7 +58,7 @@
 <body>
 
     <div id="debug-log">Starting up...</div>
-    <div id="status-light" title="AI Status"></div>
+    <div id="status-light" title="Tap to reset token" onclick="resetToken()"></div>
 
     <div id="container">
         <div id="bg-layer"></div>
@@ -92,6 +93,13 @@
             displayedLastFmTrack: null, lastFmTrackStartTime: 0, lastFmActivityTime: Date.now(), isTransitioning: false
         };
 
+        function resetToken() {
+            if(confirm("Reset Hugging Face Token?")) {
+                localStorage.removeItem('hf_token');
+                location.reload();
+            }
+        }
+
         function setLight(status) {
             const light = document.getElementById('status-light');
             light.className = ''; 
@@ -107,8 +115,15 @@
         async function init() {
             logStatus("Initializing...");
             if (!CONFIG.HF_API_TOKEN) {
-                const token = prompt("Please enter your Hugging Face API Token (hf_...):");
-                if (token) { localStorage.setItem('hf_token', token); CONFIG.HF_API_TOKEN = token; }
+                const token = prompt("Enter Hugging Face API Token (hf_...):");
+                if (token && token.trim() !== '') { 
+                    localStorage.setItem('hf_token', token.trim()); 
+                    CONFIG.HF_API_TOKEN = token.trim(); 
+                } else {
+                    logStatus("ERROR: API Token required.");
+                    setLight('offline');
+                    return;
+                }
             }
             requestWakeLock();
             await loadCSV(); 
@@ -121,11 +136,15 @@
             document.addEventListener('keydown', (e) => {
                 if (e.key.toLowerCase() === 's') triggerShuffle();
             });
-            document.getElementById('container').addEventListener('click', () => triggerShuffle());
+            document.getElementById('container').addEventListener('click', (e) => {
+                // Prevent shuffle if tapping the status light
+                if(e.target.id !== 'status-light') triggerShuffle();
+            });
         }
 
         function triggerShuffle() {
             if (state.isTransitioning) return;
+            logStatus("Shuffle tapped!");
             if (state.currentMode !== 'CSV') startCsvMode();
             else {
                 if (intervals.csv) clearInterval(intervals.csv);
@@ -182,16 +201,15 @@
             logStatus("Connecting to Cloud AI...");
             setLight('waiting');
             try {
-                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}`;
+                // FORCE RESIZE & JPEG to prevent mobile fetch crashes or HF 2MB limits
+                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=600&output=jpg`;
                 const imageResponse = await fetch(proxyUrl);
-                const imageBlob = await imageResponse.blob();
-
-                // Check payload size
-                if (imageBlob.size > 2000000) {
-                    logStatus("Error: Image too large (>2MB).");
-                    setLight('offline');
-                    return;
+                
+                if (!imageResponse.ok) {
+                    throw new Error(`Proxy blocked image (${imageResponse.status})`);
                 }
+                
+                const imageBlob = await imageResponse.blob();
 
                 const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
                     headers: { Authorization: `Bearer ${CONFIG.HF_API_TOKEN}` },
@@ -199,7 +217,13 @@
                     body: imageBlob,
                 });
 
-                const result = await hfResponse.json();
+                const textResult = await hfResponse.text();
+                let result;
+                try {
+                    result = JSON.parse(textResult);
+                } catch (e) {
+                    throw new Error(`Bad API JSON: ${textResult.substring(0,20)}`);
+                }
 
                 // Handle Loading
                 if (result.error && result.error.includes("is currently loading")) {
@@ -210,18 +234,21 @@
                     return;
                 }
 
-                // Handle Auth Error
-                if (result.error && (result.error.includes("Authorization") || result.code === 401)) {
-                    logStatus("Error: Invalid Token.");
-                    setLight('offline');
-                    localStorage.removeItem('hf_token'); // Clear bad token
-                    return;
+                // Handle Auth Error explicitly
+                if (result.error && (result.error.includes("Authorization") || result.error.includes("token") || hfResponse.status === 401)) {
+                    localStorage.removeItem('hf_token');
+                    throw new Error("Invalid API Token. Tap red light to reset.");
+                }
+
+                if (result.error) {
+                    throw new Error(`API: ${result.error}`);
                 }
 
                 if (Array.isArray(result) && result.length > 0) {
                     setLight('online');
                     const best = result.sort((a, b) => b.score - a.score)[0];
-                    logStatus(`AI Focused on: ${best.label}`);
+                    logStatus(`AI Focused on: ${best.label} (${Math.round(best.score * 100)}%)`);
+                    
                     const box = best.box;
                     const centerX = box.xmin + ((box.xmax - box.xmin) / 2);
                     const centerY = box.ymin + ((box.ymax - box.ymin) / 2);
@@ -232,7 +259,8 @@
                     applyAndClampBox(imgW/2, imgH/2, imgW*0.5, imgH*0.5, imgW, imgH, highlightElement);
                 }
             } catch (error) {
-                logStatus("Cloud AI Failed.");
+                console.error("Cloud AI Error:", error);
+                logStatus(`AI Failed: ${error.message}`);
                 setLight('offline');
             }
         }
@@ -242,12 +270,14 @@
             let startY = centerY - (targetHeight / 2);
             startX = Math.max(0, Math.min(imgW - targetWidth, startX));
             startY = Math.max(0, Math.min(imgH - targetHeight, startY));
+            
             if (el) {
                 el.style.left = (startX / imgW) * 100 + '%';
                 el.style.top = (startY / imgH) * 100 + '%';
                 el.style.width = (targetWidth / imgW) * 100 + '%';
                 el.style.height = (targetHeight / imgH) * 100 + '%';
                 el.style.opacity = '1';
+                el.style.borderColor = 'red';
             }
         }
 
