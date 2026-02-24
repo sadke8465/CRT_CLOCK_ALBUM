@@ -30,10 +30,10 @@
             width: 100%; height: 100%; object-fit: contain; 
             opacity: 0; transition: opacity 1s;
         }
-        /* Changed from ID to Class to support multiple boxes, removed infinite dimming shadow */
+        /* Changed from ID to Class, removed the 9999px shadow to prevent blackout overlap */
         .crop-highlight {
             position: absolute; border: 4px solid red;
-            box-shadow: 0 0 15px rgba(0,0,0,0.8);
+            box-shadow: 0 0 10px rgba(0,0,0,0.8);
             box-sizing: border-box; pointer-events: none; z-index: 20;
             opacity: 0; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
@@ -166,7 +166,7 @@
             state.isTransitioning = true;
             logStatus("Downloading Image...");
 
-            // Clear old highlights on transition
+            // Clear old highlights instantly
             document.querySelectorAll('.crop-highlight').forEach(el => el.remove());
 
             const displayLoader = new Image();
@@ -262,65 +262,47 @@
                     return;
                 }
 
-                const artWrapper = document.getElementById('art-wrapper');
-
                 if (Array.isArray(result) && result.length > 0) {
                     setLight('online');
                     
-                    // Sort by confidence score
-                    const sorted = result.sort((a, b) => b.score - a.score);
+                    // Filter for confident detections (>40%), sort by score, take up to 3
+                    const topSubjects = result
+                        .filter(item => item.score > 0.40)
+                        .sort((a, b) => b.score - a.score)
+                        .slice(0, 3);
                     
-                    // Pick a random amount between 1 and 3, based on available subjects
-                    const numBoxes = Math.min(sorted.length, Math.floor(Math.random() * 3) + 1);
-                    const topResults = sorted.slice(0, numBoxes);
+                    // Fallback to the top 1 if everything was below 40% confidence
+                    if (topSubjects.length === 0) topSubjects.push(result.sort((a, b) => b.score - a.score)[0]);
+
+                    const labels = topSubjects.map(s => `${s.label}`).join(', ');
+                    logStatus(`AI Focused on: ${labels}`);
                     
-                    logStatus(`AI Focused on ${numBoxes} subject(s)`);
-
-                    topResults.forEach((best, index) => {
-                        const box = best.box;
+                    topSubjects.forEach((subject) => {
+                        const box = subject.box;
+                        const scaleX = imgW / w;
+                        const scaleY = imgH / h;
                         
-                        // Calculate real image dimensions of the AI box
-                        const aiWidth = (box.xmax - box.xmin) * (imgW / w);
-                        const aiHeight = (box.ymax - box.ymin) * (imgH / h);
-                        const centerX = (box.xmin + ((box.xmax - box.xmin) / 2)) * (imgW / w);
-                        const centerY = (box.ymin + ((box.ymax - box.ymin) / 2)) * (imgH / h);
+                        const centerX = (box.xmin + ((box.xmax - box.xmin) / 2)) * scaleX;
+                        const centerY = (box.ymin + ((box.ymax - box.ymin) / 2)) * scaleY;
                         
-                        // Force it into a square and vary the framing slightly (between 1.0x and 1.6x the subject size)
-                        let size = Math.max(aiWidth, aiHeight) * (1.0 + Math.random() * 0.6);
+                        // Set width/height exactly to the subject size with a 10% padding
+                        const targetW = (box.xmax - box.xmin) * scaleX * 1.1;
+                        const targetH = (box.ymax - box.ymin) * scaleY * 1.1;
                         
-                        // Constraint: Max size capped at 0.8 (80%) of the image bounds
-                        const maxSize = Math.min(imgW, imgH) * 0.8;
-                        size = Math.min(size, maxSize);
-                        
-                        // Constraint: Ensure it doesn't get microscopically tiny (min 15%)
-                        const minSize = Math.min(imgW, imgH) * 0.15;
-                        size = Math.max(size, minSize);
-
-                        // Generate the box
                         const highlightElement = document.createElement('div');
                         highlightElement.className = 'crop-highlight';
-                        artWrapper.appendChild(highlightElement);
-                        
-                        // Cascade the animation slightly for visual appeal
-                        setTimeout(() => {
-                            applyAndClampBox(centerX, centerY, size, size, imgW, imgH, highlightElement);
-                        }, index * 200);
+                        document.getElementById('art-wrapper').appendChild(highlightElement);
+
+                        applyAndClampBox(centerX, centerY, targetW, targetH, imgW, imgH, highlightElement);
                     });
 
                 } else {
-                    logStatus("No subjects. Centering square.");
+                    logStatus("No subjects. Centering.");
                     setLight('online');
-                    
                     const highlightElement = document.createElement('div');
                     highlightElement.className = 'crop-highlight';
-                    artWrapper.appendChild(highlightElement);
-                    
-                    // Add variety to the fallback centered square (40% to 80%)
-                    let size = Math.min(imgW, imgH) * (0.4 + Math.random() * 0.4); 
-                    
-                    setTimeout(() => {
-                        applyAndClampBox(imgW/2, imgH/2, size, size, imgW, imgH, highlightElement);
-                    }, 50);
+                    document.getElementById('art-wrapper').appendChild(highlightElement);
+                    applyAndClampBox(imgW/2, imgH/2, imgW*0.5, imgH*0.5, imgW, imgH, highlightElement);
                 }
             } catch (error) {
                 console.error("Cloud AI Error:", error);
@@ -332,8 +314,6 @@
         function applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, el) {
             let startX = centerX - (targetWidth / 2);
             let startY = centerY - (targetHeight / 2);
-            
-            // Keep boxes completely inside the bounds of the image
             startX = Math.max(0, Math.min(imgW - targetWidth, startX));
             startY = Math.max(0, Math.min(imgH - targetHeight, startY));
             
@@ -343,7 +323,6 @@
                 el.style.width = (targetWidth / imgW) * 100 + '%';
                 el.style.height = (targetHeight / imgH) * 100 + '%';
                 el.style.opacity = '1';
-                el.style.borderColor = 'red';
             }
         }
 
