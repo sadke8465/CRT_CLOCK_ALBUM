@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Albums - Cloud AI Saliency</title>
+    <title>Albums - Edge AI & Saliency</title>
     
     <style>
         body {
@@ -31,7 +31,7 @@
             opacity: 0; transition: opacity 1s;
         }
         .crop-highlight {
-            position: absolute; border: 4px solid red;
+            position: absolute; border: 4px solid #00ff00;
             box-shadow: 0 0 10px rgba(0,0,0,0.8);
             box-sizing: border-box; pointer-events: none; z-index: 20;
             opacity: 0; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
@@ -63,13 +63,13 @@
 <body>
 
     <div id="debug-log">Starting up...</div>
-    <div id="status-light" title="Tap to reset token" onclick="resetToken()"></div>
+    <div id="status-light" title="Tap to restart" onclick="location.reload()"></div>
 
     <div id="container">
         <div id="bg-layer"></div>
         <div id="art-wrapper">
             <img id="album-art" src="" alt="" crossorigin="anonymous" />
-            </div>
+        </div>
         <video id="wake-video" playsinline loop muted width="1" height="1" style="opacity: 0; position: absolute;">
             <source src="data:video/mp4;base64,AAAAHGZ0eXBNNEVAAAAAAAEAAAAAAABtZGF0AAAAEAAACAAAABAAAAA=" type="video/mp4">
         </video>
@@ -77,12 +77,6 @@
 
     <script>
         const CONFIG = {
-            HF_API_TOKEN: localStorage.getItem('hf_token') || '', 
-            HF_MODEL_ENDPOINT: "https://router.huggingface.co/hf-inference/models/google/owlvit-base-patch32",
-            
-            // Broad catch-all taxonomy so it acts like a general detector, but gives us "face" to prioritize
-            AI_TARGET_LABELS: ["face", "person", "animal", "vehicle", "instrument", "furniture", "building", "food", "object"],
-            
             CSV_FILENAME: 'applemusic-3.csv', 
             CSV_INTERVAL_MS: 500000, 
             STORE_COUNTRY: 'il', 
@@ -100,12 +94,7 @@
             displayedLastFmTrack: null, lastFmTrackStartTime: 0, lastFmActivityTime: Date.now(), isTransitioning: false
         };
 
-        function resetToken() {
-            if(confirm("Reset Hugging Face Token?")) {
-                localStorage.removeItem('hf_token');
-                location.reload();
-            }
-        }
+        let faceDetector = null;
 
         function setLight(status) {
             const light = document.getElementById('status-light');
@@ -119,20 +108,42 @@
             if (logEl) logEl.innerText = msg;
         }
 
+        async function initFaceDetector() {
+            if (faceDetector) return;
+            logStatus("Loading Edge AI...");
+            setLight('waiting');
+            try {
+                // Dynamically import MediaPipe Vision Tasks
+                const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3");
+                const { FaceDetector, FilesetResolver } = vision;
+                
+                const visionResolver = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+                );
+                
+                faceDetector = await FaceDetector.createFromOptions(visionResolver, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+                        delegate: "GPU"
+                    },
+                    runningMode: "IMAGE"
+                });
+                logStatus("Edge AI Ready");
+                setLight('online');
+            } catch (error) {
+                console.error("Face Detector failed to load:", error);
+                logStatus("AI Offline. Using Saliency only.");
+                setLight('offline');
+            }
+        }
+
         async function init() {
             logStatus("Initializing...");
-            if (!CONFIG.HF_API_TOKEN) {
-                const token = prompt("Enter Hugging Face API Token (hf_...):");
-                if (token && token.trim() !== '') { 
-                    localStorage.setItem('hf_token', token.trim()); 
-                    CONFIG.HF_API_TOKEN = token.trim(); 
-                } else {
-                    logStatus("ERROR: API Token required.");
-                    setLight('offline');
-                    return;
-                }
-            }
             requestWakeLock();
+            
+            // Load Face Detector first so it's ready for the first image
+            await initFaceDetector();
+
             await loadCSV(); 
             checkLastFm(); 
             intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
@@ -193,7 +204,9 @@
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
-                            analyzeWithCloudAI(displayLoader, displayLoader.width, displayLoader.height);
+                            
+                            // Call our new local analysis engine
+                            analyzeVisuals(displayLoader, displayLoader.width, displayLoader.height);
                         }, CONFIG.FADE_DURATION);
                     });
                 }, 100); 
@@ -206,158 +219,142 @@
             return true;
         }
 
-        // Upgraded overlap checker: Uses Intersection over Minimum Area. 
-        // This catches "boxes inside boxes" (like a face inside a person).
-        function calculateOverlap(box1, box2) {
-            const xA = Math.max(box1.xmin, box2.xmin);
-            const yA = Math.max(box1.ymin, box2.ymin);
-            const xB = Math.min(box1.xmax, box2.xmax);
-            const yB = Math.min(box1.ymax, box2.ymax);
+        async function analyzeVisuals(imgObj, imgW, imgH) {
+            setLight('waiting');
+            
+            // 1. Try Face Detection First (if loaded)
+            if (faceDetector) {
+                const detections = faceDetector.detect(imgObj);
+                
+                if (detections.detections.length > 0) {
+                    logStatus(`Found ${detections.detections.length} Face(s)`);
+                    setLight('online');
+                    
+                    // Sort by confidence, limit to top 3
+                    const faces = detections.detections
+                        .sort((a, b) => b.categories[0].score - a.categories[0].score)
+                        .slice(0, 3);
 
-            const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
-            if (interArea === 0) return 0;
+                    faces.forEach(face => {
+                        const box = face.boundingBox;
+                        const padding = box.width * 0.2; // 20% padding
+                        const squareSize = Math.max(box.width, box.height) + (padding * 2);
+                        const centerX = box.originX + (box.width / 2);
+                        const centerY = box.originY + (box.height / 2);
+                        
+                        drawHighlight(centerX, centerY, squareSize, imgW, imgH);
+                    });
+                    return; // Exit early if faces are found
+                }
+            }
 
-            const box1Area = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
-            const box2Area = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
-
-            const minArea = Math.min(box1Area, box2Area);
-            return interArea / minArea; 
+            // 2. Fallback: Pure JS Classical Saliency
+            logStatus("No faces. Running Saliency...");
+            runClassicalSaliency(imgObj, imgW, imgH);
         }
 
-        async function analyzeWithCloudAI(imgObj, imgW, imgH) {
-            logStatus("Compressing for AI...");
-            setLight('waiting');
-            try {
-                const canvas = document.createElement('canvas');
-                const maxSize = 600; 
-                let w = imgW, h = imgH;
+        function runClassicalSaliency(imgObj, originalW, originalH) {
+            const processSize = 100; // Small grid for fast processing
+            const canvas = document.createElement('canvas');
+            canvas.width = processSize;
+            canvas.height = processSize;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            
+            ctx.drawImage(imgObj, 0, 0, processSize, processSize);
+            const imgData = ctx.getImageData(0, 0, processSize, processSize);
+            const data = imgData.data;
+            
+            const scores = new Float32Array(processSize * processSize);
+            const luma = new Float32Array(processSize * processSize);
+
+            // Pass 1: Luminance & Saturation
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const idx = i / 4;
                 
-                if (w > maxSize || h > maxSize) {
-                    if (w > h) { h = Math.round((h * maxSize) / w); w = maxSize; } 
-                    else { w = Math.round((w * maxSize) / h); h = maxSize; }
-                }
-                canvas.width = w; canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(imgObj, 0, 0, w, h);
+                luma[idx] = (0.299 * r + 0.587 * g + 0.114 * b);
+                
+                const max = Math.max(r, g, b);
+                const min = Math.min(r, g, b);
+                const saturation = max - min;
+                
+                scores[idx] += saturation * 0.5; 
+            }
 
-                const imageBlob = await new Promise((resolve, reject) => {
-                    canvas.toBlob((blob) => {
-                        if (blob) resolve(blob);
-                        else reject(new Error("Canvas block"));
-                    }, 'image/jpeg', 0.8);
-                });
-
-                logStatus("Sending to Cloud AI...");
-
-                const base64 = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(imageBlob);
-                });
-
-                const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
-                    headers: { 
-                        "Authorization": `Bearer ${CONFIG.HF_API_TOKEN}`,
-                        "Content-Type": "application/json"
-                    },
-                    method: "POST",
-                    body: JSON.stringify({ 
-                        inputs: `data:image/jpeg;base64,${base64}`,
-                        parameters: { candidate_labels: CONFIG.AI_TARGET_LABELS }
-                    }),
-                });
-
-                if (hfResponse.status === 401) {
-                    localStorage.removeItem('hf_token');
-                    throw new Error("Invalid Token. Tap red light to reset.");
-                }
-
-                if (!hfResponse.ok) throw new Error(`Server ${hfResponse.status}`);
-
-                const result = await hfResponse.json();
-
-                if (result.error && result.error.includes("is currently loading")) {
-                    const waitTime = Math.ceil(result.estimated_time || 20);
-                    logStatus(`AI Waking up... (${waitTime}s)`);
-                    setLight('waiting');
-                    setTimeout(() => analyzeWithCloudAI(imgObj, imgW, imgH), waitTime * 1000);
-                    return;
-                }
-
-                if (Array.isArray(result) && result.length > 0) {
-                    setLight('online');
+            // Pass 2: Edge Density Approximate (Sobel-like)
+            for (let y = 1; y < processSize - 1; y++) {
+                for (let x = 1; x < processSize - 1; x++) {
+                    const idx = y * processSize + x;
                     
-                    const confidentSubjects = result
-                        .filter(item => item.score > 0.10) // Lowered slightly so it doesn't miss tricky objects
-                        .sort((a, b) => {
-                            // PRIORITY OVERRIDE: Faces jump to the front of the line automatically
-                            const aIsFace = a.label === 'face';
-                            const bIsFace = b.label === 'face';
-                            if (aIsFace && !bIsFace) return -1;
-                            if (bIsFace && !aIsFace) return 1;
-                            
-                            // Otherwise, sort normally by confidence score
-                            return b.score - a.score;
-                        });
-                        
-                    const topSubjects = [];
+                    const up = luma[idx - processSize];
+                    const down = luma[idx + processSize];
+                    const left = luma[idx - 1];
+                    const right = luma[idx + 1];
                     
-                    for (const subject of confidentSubjects) {
-                        let overlap = false;
-                        for (const selected of topSubjects) {
-                            // If a new box shares more than 40% of its area with an existing one, ignore it.
-                            // Because 'face' is processed first, the 'person' box gets caught here and skipped!
-                            if (calculateOverlap(subject.box, selected.box) > 0.40) {
-                                overlap = true;
-                                break;
-                            }
-                        }
-                        if (!overlap) {
-                            topSubjects.push(subject);
-                            if (topSubjects.length >= 3) break;
+                    const edgeScore = Math.abs(luma[idx] - up) + Math.abs(luma[idx] - down) + 
+                                      Math.abs(luma[idx] - left) + Math.abs(luma[idx] - right);
+                                      
+                    scores[idx] += edgeScore * 1.5; // Weight edges heavily
+                }
+            }
+
+            // Pass 3: Pool regions to find the "hottest" areas
+            const regions = [];
+            const windowSize = 25; // 25x25 window (represents 25% of the image size)
+            const step = 10;
+            
+            for (let y = 0; y <= processSize - windowSize; y += step) {
+                for (let x = 0; x <= processSize - windowSize; x += step) {
+                    let regionScore = 0;
+                    for (let wy = 0; wy < windowSize; wy++) {
+                        for (let wx = 0; wx < windowSize; wx++) {
+                            regionScore += scores[(y + wy) * processSize + (x + wx)];
                         }
                     }
-
-                    if (topSubjects.length === 0) topSubjects.push(result.sort((a, b) => b.score - a.score)[0]);
-
-                    const labels = topSubjects.map(s => `${s.label}`).join(', ');
-                    logStatus(`AI Focused on: ${labels}`);
-                    
-                    topSubjects.forEach((subject) => {
-                        const box = subject.box;
-                        const scaleX = imgW / w;
-                        const scaleY = imgH / h;
-                        
-                        const centerX = (box.xmin + ((box.xmax - box.xmin) / 2)) * scaleX;
-                        const centerY = (box.ymin + ((box.ymax - box.ymin) / 2)) * scaleY;
-                        
-                        const rawW = (box.xmax - box.xmin) * scaleX;
-                        const rawH = (box.ymax - box.ymin) * scaleY;
-                        
-                        const maxDimension = Math.max(rawW, rawH);
-                        const squareSize = Math.min(maxDimension * 1.15, Math.min(imgW, imgH));
-                        
-                        const highlightElement = document.createElement('div');
-                        highlightElement.className = 'crop-highlight';
-                        document.getElementById('art-wrapper').appendChild(highlightElement);
-
-                        applyAndClampBox(centerX, centerY, squareSize, squareSize, imgW, imgH, highlightElement);
-                    });
-
-                } else {
-                    logStatus("No subjects. Centering.");
-                    setLight('online');
-                    const highlightElement = document.createElement('div');
-                    highlightElement.className = 'crop-highlight';
-                    document.getElementById('art-wrapper').appendChild(highlightElement);
-                    applyAndClampBox(imgW/2, imgH/2, Math.min(imgW, imgH)*0.5, Math.min(imgW, imgH)*0.5, imgW, imgH, highlightElement);
+                    regions.push({ x, y, score: regionScore });
                 }
-            } catch (error) {
-                console.error("Cloud AI Error:", error);
-                logStatus(`AI Failed: ${error.message}`);
-                setLight('offline');
             }
+
+            regions.sort((a, b) => b.score - a.score);
+
+            // Extract top 3 non-overlapping regions
+            const topRegions = [];
+            for (const region of regions) {
+                let overlap = false;
+                for (const selected of topRegions) {
+                    // Simple AABB overlap check
+                    if (region.x < selected.x + windowSize && region.x + windowSize > selected.x &&
+                        region.y < selected.y + windowSize && region.y + windowSize > selected.y) {
+                        overlap = true; break;
+                    }
+                }
+                if (!overlap) {
+                    topRegions.push(region);
+                    if (topRegions.length >= 3) break;
+                }
+            }
+
+            setLight('online');
+            if (topRegions.length > 0) {
+                topRegions.forEach(region => {
+                    const scale = originalW / processSize;
+                    const centerX = (region.x + windowSize/2) * scale;
+                    const centerY = (region.y + windowSize/2) * scale;
+                    const squareSize = (windowSize * scale) * 1.2; 
+                    
+                    drawHighlight(centerX, centerY, squareSize, originalW, originalH);
+                });
+            } else {
+                // Ultimate fallback: Center square
+                drawHighlight(originalW/2, originalH/2, Math.min(originalW, originalH)*0.5, originalW, originalH);
+            }
+        }
+
+        function drawHighlight(centerX, centerY, targetSize, imgW, imgH) {
+            const highlightElement = document.createElement('div');
+            highlightElement.className = 'crop-highlight';
+            document.getElementById('art-wrapper').appendChild(highlightElement);
+            applyAndClampBox(centerX, centerY, targetSize, targetSize, imgW, imgH, highlightElement);
         }
 
         function applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, el) {
