@@ -228,16 +228,21 @@
 
                 logStatus("Sending to Cloud AI...");
 
-                // PROPER IOS FIX: Convert to raw buffer to bypass Safari's canvas Blob memory bugs
-                const imageBuffer = await imageBlob.arrayBuffer();
+                // iOS Safari fix: use base64 JSON instead of ArrayBuffer
+                const base64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(imageBlob);
+                });
 
                 const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
                     headers: { 
                         "Authorization": `Bearer ${CONFIG.HF_API_TOKEN}`,
-                        "Content-Type": "image/jpeg"
+                        "Content-Type": "application/json"
                     },
                     method: "POST",
-                    body: imageBuffer,
+                    body: JSON.stringify({ inputs: base64 }),
                 });
 
                 if (hfResponse.status === 401) {
