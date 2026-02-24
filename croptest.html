@@ -113,12 +113,13 @@
             logStatus("Loading Edge AI...");
             setLight('waiting');
             try {
-                // Dynamically import MediaPipe Vision Tasks
-                const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3");
-                const { FaceDetector, FilesetResolver } = vision;
+                // The +esm flag forces jsDelivr to inject proper CORS headers for Safari
+                const visionModule = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm");
+                const { FaceDetector, FilesetResolver } = visionModule;
                 
+                // Using unpkg for the WASM binary path as it often has more reliable cross-origin headers
                 const visionResolver = await FilesetResolver.forVisionTasks(
-                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+                    "https://unpkg.com/@mediapipe/tasks-vision@0.10.3/wasm"
                 );
                 
                 faceDetector = await FaceDetector.createFromOptions(visionResolver, {
@@ -205,7 +206,7 @@
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
                             
-                            // Call our new local analysis engine
+                            // Call our local analysis engine
                             analyzeVisuals(displayLoader, displayLoader.width, displayLoader.height);
                         }, CONFIG.FADE_DURATION);
                     });
