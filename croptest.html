@@ -30,7 +30,6 @@
             width: 100%; height: 100%; object-fit: contain; 
             opacity: 0; transition: opacity 1s;
         }
-        /* Changed from ID to Class, removed the 9999px shadow to prevent blackout overlap */
         .crop-highlight {
             position: absolute; border: 4px solid red;
             box-shadow: 0 0 10px rgba(0,0,0,0.8);
@@ -204,6 +203,22 @@
             return true;
         }
 
+        // Helper function to prevent overlapping boxes on the same object
+        function calculateIoU(box1, box2) {
+            const xA = Math.max(box1.xmin, box2.xmin);
+            const yA = Math.max(box1.ymin, box2.ymin);
+            const xB = Math.min(box1.xmax, box2.xmax);
+            const yB = Math.min(box1.ymax, box2.ymax);
+
+            const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+            if (interArea === 0) return 0;
+
+            const box1Area = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
+            const box2Area = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
+
+            return interArea / (box1Area + box2Area - interArea);
+        }
+
         async function analyzeWithCloudAI(imgObj, imgW, imgH) {
             logStatus("Compressing for AI...");
             setLight('waiting');
@@ -265,13 +280,30 @@
                 if (Array.isArray(result) && result.length > 0) {
                     setLight('online');
                     
-                    // Filter for confident detections (>40%), sort by score, take up to 3
-                    const topSubjects = result
+                    // Filter confident results, sort by score
+                    const confidentSubjects = result
                         .filter(item => item.score > 0.40)
-                        .sort((a, b) => b.score - a.score)
-                        .slice(0, 3);
+                        .sort((a, b) => b.score - a.score);
+                        
+                    const topSubjects = [];
                     
-                    // Fallback to the top 1 if everything was below 40% confidence
+                    // Loop through and keep up to 3 subjects, discarding any that overlap heavily
+                    for (const subject of confidentSubjects) {
+                        let overlap = false;
+                        for (const selected of topSubjects) {
+                            // If a new box overlaps more than 30% with an existing one, ignore it
+                            if (calculateIoU(subject.box, selected.box) > 0.30) {
+                                overlap = true;
+                                break;
+                            }
+                        }
+                        if (!overlap) {
+                            topSubjects.push(subject);
+                            if (topSubjects.length >= 3) break;
+                        }
+                    }
+
+                    // Fallback to the absolute best match if filtering wiped everything out
                     if (topSubjects.length === 0) topSubjects.push(result.sort((a, b) => b.score - a.score)[0]);
 
                     const labels = topSubjects.map(s => `${s.label}`).join(', ');
@@ -282,18 +314,24 @@
                         const scaleX = imgW / w;
                         const scaleY = imgH / h;
                         
+                        // Calculate center point
                         const centerX = (box.xmin + ((box.xmax - box.xmin) / 2)) * scaleX;
                         const centerY = (box.ymin + ((box.ymax - box.ymin) / 2)) * scaleY;
                         
-                        // Set width/height exactly to the subject size with a 10% padding
-                        const targetW = (box.xmax - box.xmin) * scaleX * 1.1;
-                        const targetH = (box.ymax - box.ymin) * scaleY * 1.1;
+                        // Calculate raw dimensions
+                        const rawW = (box.xmax - box.xmin) * scaleX;
+                        const rawH = (box.ymax - box.ymin) * scaleY;
+                        
+                        // STRICT SQUARE: Find the longest edge and add a little padding
+                        const maxDimension = Math.max(rawW, rawH);
+                        // Prevent the square from being bigger than the actual image
+                        const squareSize = Math.min(maxDimension * 1.15, Math.min(imgW, imgH));
                         
                         const highlightElement = document.createElement('div');
                         highlightElement.className = 'crop-highlight';
                         document.getElementById('art-wrapper').appendChild(highlightElement);
 
-                        applyAndClampBox(centerX, centerY, targetW, targetH, imgW, imgH, highlightElement);
+                        applyAndClampBox(centerX, centerY, squareSize, squareSize, imgW, imgH, highlightElement);
                     });
 
                 } else {
@@ -302,7 +340,7 @@
                     const highlightElement = document.createElement('div');
                     highlightElement.className = 'crop-highlight';
                     document.getElementById('art-wrapper').appendChild(highlightElement);
-                    applyAndClampBox(imgW/2, imgH/2, imgW*0.5, imgH*0.5, imgW, imgH, highlightElement);
+                    applyAndClampBox(imgW/2, imgH/2, Math.min(imgW, imgH)*0.5, Math.min(imgW, imgH)*0.5, imgW, imgH, highlightElement);
                 }
             } catch (error) {
                 console.error("Cloud AI Error:", error);
@@ -314,6 +352,8 @@
         function applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, el) {
             let startX = centerX - (targetWidth / 2);
             let startY = centerY - (targetHeight / 2);
+            
+            // Keeps the box strictly within the image bounds
             startX = Math.max(0, Math.min(imgW - targetWidth, startX));
             startY = Math.max(0, Math.min(imgH - targetHeight, startY));
             
