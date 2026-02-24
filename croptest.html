@@ -228,13 +228,21 @@
 
                 logStatus("Sending to Cloud AI...");
 
+                // Base64 conversion
+                const base64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(imageBlob);
+                });
+
                 const hfResponse = await fetch(CONFIG.HF_MODEL_ENDPOINT, {
                     headers: { 
                         "Authorization": `Bearer ${CONFIG.HF_API_TOKEN}`,
-                        "Content-Type": "application/octet-stream"
+                        "Content-Type": "application/json"
                     },
                     method: "POST",
-                    body: imageBlob,
+                    body: JSON.stringify({ inputs: `data:image/jpeg;base64,${base64}` }),
                 });
 
                 if (hfResponse.status === 401) {
