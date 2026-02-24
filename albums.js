@@ -1,9 +1,9 @@
 /**
- * ALBUMS MODULE (Edge AI & Immersion Edition)
+ * ALBUMS MODULE (Full-Screen Immersion Edition)
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing -> Wait 30s -> Scan image (MediaPipe Face / Saliency) -> Smooth Zoom/Pan Sequence -> Wait 3m -> Repeat.
+ * 3. IF playing > 30s -> Scan image -> Full Screen Zoom/Pan (No Backgrounds).
  * 4. IF NOT playing -> Show CSV (Static Corner Animation).
  */
 
@@ -18,28 +18,17 @@ const CONFIG = {
     BLACK_HOLD_DURATION: 200, 
     
     // Smart Zoom Settings
-    ZOOM_DEPTH: 2.0,            // How much CLOSER to get after filling the screen
-    SMART_ZOOM_DELAY: 30000,    // 30 seconds before starting
+    SMART_ZOOM_DELAY: 30000, 
+    ZOOM_DEPTH: 2.0,         // How much CLOSER to get after filling the screen
+    TRANSITION_TIME: 5000,   
+    HOLD_TIME: 20000,        
     
-    // Face Animation Timing
-    FACE_ZOOM_TIME: 15000,      // 15s transition
-    FACE_HOLD_TIME: 60000,      // 1m hold
-    
-    // Edge/Saliency Animation Timing
-    EDGE_ZOOM_TIME: 15000,      // 15s transition
-    EDGE_HOLD_TIME: 30000,      // 30s hold per region
-    
-    LOOP_DELAY: 180000,         // 3m rest before doing it all again
-
     // Last.fm Config
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
     LAST_FM_USER: 'Noamsadi95',
     LAST_FM_POLL_INTERVAL: 5000, 
     LAST_FM_TIMEOUT_MS: 20 * 60 * 1000 
 };
-
-// --- GLOBAL AI INSTANCE (Memory Leak Prevention) ---
-let faceDetector = null;
 
 // --- STATE MANAGEMENT ---
 let intervals = { lastFm: null, csv: null };
@@ -51,9 +40,8 @@ let state = {
     csvIndex: 0,
     displayedLastFmTrack: null,     
     lastFmTrackStartTime: 0,        
+    lastFmZoomTriggered: false,     
     activeAnimation: null,          
-    zoomTimer: null,                // Timer for 30s delay
-    loopTimer: null,                // Timer for 3m delay          
     lastFmActivityTime: Date.now(),
     isTransitioning: false
 };
@@ -78,7 +66,6 @@ export async function init(container) {
     `;
 
     requestWakeLock();
-    await initFaceDetector(); // Load AI Models immediately
     await loadCSV(); 
     checkLastFm(); 
     intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
@@ -100,36 +87,12 @@ function resetState() {
         csvIndex: 0,
         displayedLastFmTrack: null,
         lastFmTrackStartTime: 0,
+        lastFmZoomTriggered: false,
         activeAnimation: null,
-        zoomTimer: null,
-        loopTimer: null,
         lastFmActivityTime: Date.now(),
         isTransitioning: false
     };
     intervals = { lastFm: null, csv: null };
-}
-
-// --- AI INITIALIZATION ---
-async function initFaceDetector() {
-    if (faceDetector) return;
-    try {
-        console.log("[Albums] Loading Edge AI Face Detector...");
-        const visionModule = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm");
-        const { FaceDetector, FilesetResolver } = visionModule;
-        const visionResolver = await FilesetResolver.forVisionTasks(
-            "https://unpkg.com/@mediapipe/tasks-vision@0.10.3/wasm"
-        );
-        faceDetector = await FaceDetector.createFromOptions(visionResolver, {
-            baseOptions: {
-                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
-                delegate: "GPU"
-            },
-            runningMode: "IMAGE"
-        });
-        console.log("[Albums] Edge AI Face Detector Ready.");
-    } catch (error) {
-        console.error("[Albums] Face Detector failed to load. Will fallback to Saliency:", error);
-    }
 }
 
 // --- CORE LOGIC ---
@@ -148,7 +111,7 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     if (state.isTransitioning) return false; 
     state.isTransitioning = true;
 
-    stopSmartAnimation(); // Aggressively cancel any active animations and clear caches
+    stopSmartAnimation();
 
     const loader = new Image();
     loader.crossOrigin = "Anonymous"; 
@@ -170,7 +133,7 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
-            // Reset CSS Animation for CSV Mode
+            // Reset CSS Animation
             wrapperEl.classList.remove('csv-animate');
             void wrapperEl.offsetWidth; 
             
@@ -203,6 +166,7 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
 // --- HELPER: START CSV MODE ---
 function startCsvMode() {
     if (state.currentMode === 'CSV' && intervals.csv) return;
+
     console.log("Starting CSV Mode");
     
     stopSmartAnimation(); 
@@ -228,17 +192,28 @@ async function checkLastFm() {
 
             if (!state.startupDone) {
                 state.startupDone = true;
-                if (isNowPlaying) switchToLastFm(track, trackIdentifier);
-                else startCsvMode();
+                if (isNowPlaying) {
+                    switchToLastFm(track, trackIdentifier);
+                } else {
+                    startCsvMode();
+                }
                 return; 
             }
 
             if (isNowPlaying) {
                 state.lastFmActivityTime = Date.now();
-                if (state.currentMode === 'CSV' || trackIdentifier !== state.displayedLastFmTrack) {
+                
+                if (state.currentMode === 'CSV') {
                     if (intervals.csv) clearInterval(intervals.csv);
                     switchToLastFm(track, trackIdentifier);
+                } 
+                else if (trackIdentifier === state.displayedLastFmTrack) {
+                    checkSmartZoomTimer();
                 }
+                else if (trackIdentifier !== state.displayedLastFmTrack) {
+                    switchToLastFm(track, trackIdentifier);
+                }
+
             } else {
                 if (state.currentMode === 'LASTFM') {
                     if (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS) {
@@ -259,7 +234,8 @@ async function checkLastFm() {
 function switchToLastFm(track, trackIdentifier) {
     state.currentMode = 'LASTFM';
     state.lastFmTrackStartTime = Date.now();
-    stopSmartAnimation(); // Reset all timers/animations immediately
+    state.lastFmZoomTriggered = false;
+    stopSmartAnimation();
 
     const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
 
@@ -273,28 +249,35 @@ function switchToLastFm(track, trackIdentifier) {
         if (finalImage) {
             performVisualTransition(finalImage, () => {
                 state.displayedLastFmTrack = trackIdentifier;
-                
-                // 1. Start the 30-second delay timer once the image is visible
-                state.zoomTimer = setTimeout(() => {
-                    runSmartZoomSequence();
-                }, CONFIG.SMART_ZOOM_DELAY);
             });
         }
     });
 }
 
-// --- SMART ZOOM LOGIC & ANIMATION CHOREOGRAPHY ---
+// --- SMART ZOOM LOGIC (FULL SCREEN & VIEWPORT AWARE) ---
 
-async function runSmartZoomSequence() {
+function checkSmartZoomTimer() {
+    if (state.currentMode !== 'LASTFM') return;
+    if (state.lastFmZoomTriggered) return;
+    if (state.isTransitioning) return;
+
+    const timePlaying = Date.now() - state.lastFmTrackStartTime;
+    if (timePlaying > CONFIG.SMART_ZOOM_DELAY) {
+        state.lastFmZoomTriggered = true;
+        runSmartZoomSequence();
+    }
+}
+
+function runSmartZoomSequence() {
     const imgEl = document.getElementById('album-art');
     const wrapperEl = document.getElementById('art-wrapper');
-    if (!imgEl || !wrapperEl || state.currentMode !== 'LASTFM') return;
+    if (!imgEl || !wrapperEl) return;
 
-    console.log("[Albums] Running AI Analysis...");
-    const analysisResult = await analyzeVisuals(imgEl);
-    
-    if (!analysisResult || !analysisResult.points) {
-        console.log("[Albums] Analysis failed. Skipping animation cycle.");
+    console.log("Running Smart Zoom Analysis...");
+
+    const points = analyzeImageForCrops(imgEl);
+    if (!points || points.length < 3) {
+        console.log("Analysis failed. Skipping.");
         return;
     }
 
@@ -303,79 +286,79 @@ async function runSmartZoomSequence() {
     const winH = window.innerHeight;
     const rect = wrapperEl.getBoundingClientRect();
 
+    // 1. Minimum Scale needed to ensure NO background is visible
+    // We compare Screen Aspect vs Image Aspect
     const scaleToCoverX = winW / rect.width;
     const scaleToCoverY = winH / rect.height;
-    const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05; 
+    
+    // We must take the LARGER of the two to ensure full coverage
+    const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05; // 1.05 buffer for safety
+
+    // 2. Target Scale = Cover Scale * Zoom Depth
+    // This ensures we are always strictly larger than the screen
     const targetScale = minCoverScale * CONFIG.ZOOM_DEPTH;
 
-    // Helper: Converts percentage coordinates into strictly clamped pixel translation
+    console.log(`Screen: ${winW}x${winH}, Wrapper: ${rect.width}x${rect.height}`);
+    console.log(`Min Cover Scale: ${minCoverScale}, Target Scale: ${targetScale}`);
+
     const getTransform = (point) => {
+        // Point x/y are percentages (0-100) relative to image top-left
+        // Center of image is 50, 50
+        
+        // 1. Calculate the offset from center in PIXELS (at unscaled size)
+        // If point is at 20%, offset is (50 - 20) = 30% positive shift
         const shiftX_pct = 50 - point.x;
         const shiftY_pct = 50 - point.y;
         
+        // Convert to pixels at target scale
         let transX = (shiftX_pct / 100) * rect.width * targetScale;
         let transY = (shiftY_pct / 100) * rect.height * targetScale;
 
+        // 2. CLAMP TRANSLATION
+        // We must not translate so far that the edge of the image enters the viewport.
+        // Max translation allowed = (ScaledImageSize - ScreenSize) / 2
+        
         const maxTransX = (rect.width * targetScale - winW) / 2;
         const maxTransY = (rect.height * targetScale - winH) / 2;
 
+        // Clamp it
         transX = Math.max(-maxTransX, Math.min(maxTransX, transX));
         transY = Math.max(-maxTransY, Math.min(maxTransY, transY));
 
         return `translate(${transX}px, ${transY}px) scale(${targetScale})`;
     };
 
-    let keyframes = [];
-    let totalDuration = 0;
+    const T_MOVE = CONFIG.TRANSITION_TIME; 
+    const T_HOLD = CONFIG.HOLD_TIME;       
+    const totalDuration = (T_MOVE * 4) + (T_HOLD * 3);
 
-    // --- CHOREOGRAPHY A: FACE DETECTED ---
-    if (analysisResult.type === 'face') {
-        const tZ = CONFIG.FACE_ZOOM_TIME; 
-        const tH = CONFIG.FACE_HOLD_TIME; 
-        totalDuration = (tZ * 2) + tH; // Total 90s
+    const keyframes = [
+        { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
+        
+        // P1
+        { transform: getTransform(points[0]), offset: T_MOVE / totalDuration }, 
+        { transform: getTransform(points[0]), offset: (T_MOVE + T_HOLD) / totalDuration },
+        
+        // P2
+        { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD) / totalDuration },
+        { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD * 2) / totalDuration },
+        
+        // P3
+        { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 2) / totalDuration },
+        { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 3) / totalDuration },
+        
+        // Return
+        { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
+    ];
 
-        keyframes = [
-            { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
-            { transform: getTransform(analysisResult.points[0]), offset: tZ / totalDuration },
-            { transform: getTransform(analysisResult.points[0]), offset: (tZ + tH) / totalDuration },
-            { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
-        ];
-    } 
-    // --- CHOREOGRAPHY B: EDGE/SALIENCY (3 Regions) ---
-    else {
-        const tZ = CONFIG.EDGE_ZOOM_TIME; 
-        const tH = CONFIG.EDGE_HOLD_TIME; 
-        totalDuration = (tZ * 4) + (tH * 3); // Total 150s
-
-        keyframes = [
-            { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
-            { transform: getTransform(analysisResult.points[0]), offset: tZ / totalDuration },
-            { transform: getTransform(analysisResult.points[0]), offset: (tZ + tH) / totalDuration },
-            
-            { transform: getTransform(analysisResult.points[1]), offset: (tZ*2 + tH) / totalDuration },
-            { transform: getTransform(analysisResult.points[1]), offset: (tZ*2 + tH*2) / totalDuration },
-            
-            { transform: getTransform(analysisResult.points[2]), offset: (tZ*3 + tH*2) / totalDuration },
-            { transform: getTransform(analysisResult.points[2]), offset: (tZ*3 + tH*3) / totalDuration },
-            
-            { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
-        ];
-    }
-
-    // Trigger the Web Animation
     state.activeAnimation = wrapperEl.animate(keyframes, {
         duration: totalDuration,
         fill: 'forwards',
-        easing: 'cubic-bezier(0.4, 0, 0.2, 1)' // Buttery smooth easing for fluid start/stops
+        easing: 'cubic-bezier(0.65, 0, 0.35, 1)' 
     });
 
     state.activeAnimation.onfinish = () => {
         state.activeAnimation = null;
-        // 5. Schedule the next cycle in 3 minutes
-        console.log(`[Albums] Animation complete. Resting for ${CONFIG.LOOP_DELAY / 1000} seconds.`);
-        state.loopTimer = setTimeout(() => {
-            runSmartZoomSequence();
-        }, CONFIG.LOOP_DELAY);
     };
 }
 
@@ -384,142 +367,85 @@ function stopSmartAnimation() {
         state.activeAnimation.cancel();
         state.activeAnimation = null;
     }
-    if (state.zoomTimer) {
-        clearTimeout(state.zoomTimer);
-        state.zoomTimer = null;
-    }
-    if (state.loopTimer) {
-        clearTimeout(state.loopTimer);
-        state.loopTimer = null;
-    }
     const wrapper = document.getElementById('art-wrapper');
     if (wrapper) wrapper.style.transform = ''; 
 }
 
-// --- AI BRAINS (Calculates based on IMAGE ONLY) ---
-async function analyzeVisuals(imgObj) {
-    // 1. Try MediaPipe Face Detection
-    if (faceDetector) {
-        const detections = faceDetector.detect(imgObj);
-        if (detections.detections.length > 0) {
-            console.log(`[Albums] Found ${detections.detections.length} Face(s)`);
-            const bestFace = detections.detections.sort((a, b) => b.categories[0].score - a.categories[0].score)[0];
-            const box = bestFace.boundingBox;
-            const centerX = box.originX + (box.width / 2);
-            const centerY = box.originY + (box.height / 2);
-            
-            return {
-                type: 'face',
-                points: [{
-                    x: (centerX / imgObj.naturalWidth) * 100,
-                    y: (centerY / imgObj.naturalHeight) * 100
-                }]
-            };
-        }
-    }
-
-    // 2. Fallback: Classical Color-Aware Saliency
-    console.log("[Albums] No faces found. Running Saliency Edge Detection...");
-    return runClassicalSaliency(imgObj);
-}
-
-function runClassicalSaliency(imgObj) {
-    const processSize = 100; 
+// --- SCANNER (Calculates based on IMAGE ONLY) ---
+function analyzeImageForCrops(imgElement) {
+    const RES = 150;
     const canvas = document.createElement('canvas');
-    canvas.width = processSize;
-    canvas.height = processSize;
+    canvas.width = RES;
+    canvas.height = RES;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
     try {
-        ctx.drawImage(imgObj, 0, 0, processSize, processSize);
+        // This draws the raw image to canvas, ignoring screen layout/backgrounds
+        ctx.drawImage(imgElement, 0, 0, RES, RES);
     } catch(e) {
-        // Fallback to absolute center if canvas fails due to cross-origin taint
-        return { type: 'edge', points: [{x: 50, y: 50}, {x: 50, y: 50}, {x: 50, y: 50}] };
-    }
-    
-    const imgData = ctx.getImageData(0, 0, processSize, processSize);
-    const data = imgData.data;
-    const scores = new Float32Array(processSize * processSize);
-
-    // Pass 1: Saturation 
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        scores[i / 4] += (max - min) * 0.5; 
+        return null;
     }
 
-    // Pass 2: Color-Aware Edge Density
-    const COLOR_EDGE_THRESHOLD = 120; 
-    for (let y = 1; y < processSize - 1; y++) {
-        for (let x = 1; x < processSize - 1; x++) {
-            const cIdx = (y * processSize + x) * 4;
-            const r = data[cIdx], g = data[cIdx+1], b = data[cIdx+2];
+    const pixels = ctx.getImageData(0, 0, RES, RES).data;
+    const scores = new Float32Array(RES * RES);
 
-            const upIdx = cIdx - (processSize * 4);
-            const downIdx = cIdx + (processSize * 4);
-            const leftIdx = cIdx - 4;
-            const rightIdx = cIdx + 4;
-            
-            const dUp = Math.abs(r - data[upIdx]) + Math.abs(g - data[upIdx+1]) + Math.abs(b - data[upIdx+2]);
-            const dDown = Math.abs(r - data[downIdx]) + Math.abs(g - data[downIdx+1]) + Math.abs(b - data[downIdx+2]);
-            const dLeft = Math.abs(r - data[leftIdx]) + Math.abs(g - data[leftIdx+1]) + Math.abs(b - data[leftIdx+2]);
-            const dRight = Math.abs(r - data[rightIdx]) + Math.abs(g - data[rightIdx+1]) + Math.abs(b - data[rightIdx+2]);
-            
-            let edgeScore = 0;
-            if (dUp > COLOR_EDGE_THRESHOLD) edgeScore += dUp;
-            if (dDown > COLOR_EDGE_THRESHOLD) edgeScore += dDown;
-            if (dLeft > COLOR_EDGE_THRESHOLD) edgeScore += dLeft;
-            if (dRight > COLOR_EDGE_THRESHOLD) edgeScore += dRight;
-            
-            scores[y * processSize + x] += edgeScore * 0.5; 
+    for (let i = 0; i < pixels.length; i += 4) {
+        const r = pixels[i];
+        const g = pixels[i+1];
+        const b = pixels[i+2];
+
+        let edge = 0;
+        if ((i/4) % RES < RES - 1) {
+            edge = Math.abs(r - pixels[i+4]) + Math.abs(g - pixels[i+5]) + Math.abs(b - pixels[i+6]);
         }
+
+        let isSkin = 0;
+        if (r > 60 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15 && r - Math.min(g, b) > 15) {
+            isSkin = 1;
+        }
+
+        let pixelScore = edge;
+        if (isSkin) pixelScore += 255; 
+        scores[i/4] = pixelScore;
     }
 
-    // Pass 3: Pool regions
-    const regions = [];
-    const windowSize = 25; 
-    const step = 10;
-    for (let y = 0; y <= processSize - windowSize; y += step) {
-        for (let x = 0; x <= processSize - windowSize; x += step) {
-            let regionScore = 0;
-            for (let wy = 0; wy < windowSize; wy++) {
-                for (let wx = 0; wx < windowSize; wx++) {
-                    regionScore += scores[(y + wy) * processSize + (x + wx)];
+    // 1.5 is purely used for finding density, not display zoom
+    const cropSize = Math.floor(RES / 1.5); 
+    const results = [];
+
+    for (let k = 0; k < 3; k++) {
+        let maxScore = -Infinity;
+        let bestX = 0;
+        let bestY = 0;
+
+        for (let y = 0; y <= RES - cropSize; y += 2) {
+            for (let x = 0; x <= RES - cropSize; x += 2) {
+                let currentTotal = 0;
+                for (let sy = 0; sy < cropSize; sy += 5) {
+                    for (let sx = 0; sx < cropSize; sx += 5) {
+                        currentTotal += scores[(y + sy) * RES + (x + sx)];
+                    }
+                }
+                if (currentTotal > maxScore) {
+                    maxScore = currentTotal;
+                    bestX = x;
+                    bestY = y;
                 }
             }
-            regions.push({ x: x + windowSize/2, y: y + windowSize/2, score: regionScore });
         }
-    }
 
-    regions.sort((a, b) => b.score - a.score);
+        results.push({
+            x: ((bestX + cropSize/2) / RES) * 100,
+            y: ((bestY + cropSize/2) / RES) * 100
+        });
 
-    // Filter overlapping regions
-    const topRegions = [];
-    for (const region of regions) {
-        let overlap = false;
-        for (const selected of topRegions) {
-            if (Math.abs(region.x - selected.x) < windowSize && Math.abs(region.y - selected.y) < windowSize) {
-                overlap = true; break;
+        for (let by = bestY; by < bestY + cropSize; by++) {
+            for (let bx = bestX; bx < bestX + cropSize; bx++) {
+                if (by < RES && bx < RES) scores[by * RES + bx] = -99999;
             }
         }
-        if (!overlap) {
-            topRegions.push(region);
-            if (topRegions.length >= 3) break;
-        }
     }
-
-    // Convert to percentages for animation engine
-    const points = topRegions.map(r => ({
-        x: (r.x / processSize) * 100,
-        y: (r.y / processSize) * 100
-    }));
-
-    // Fallbacks to guarantee 3 points for the timeline math
-    while(points.length > 0 && points.length < 3) points.push(points[0]);
-    if (points.length === 0) points.push({x: 50, y: 50}, {x: 50, y: 50}, {x: 50, y: 50});
-
-    return { type: 'edge', points: points };
+    return results;
 }
 
 // --- HELPERS ---
