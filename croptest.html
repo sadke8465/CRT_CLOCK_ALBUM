@@ -78,7 +78,10 @@
     <script>
         const CONFIG = {
             HF_API_TOKEN: localStorage.getItem('hf_token') || '', 
-            HF_MODEL_ENDPOINT: "https://router.huggingface.co/hf-inference/models/facebook/detr-resnet-50",
+            HF_MODEL_ENDPOINT: "https://router.huggingface.co/hf-inference/models/google/owlvit-base-patch32",
+            
+            // Broad catch-all taxonomy so it acts like a general detector, but gives us "face" to prioritize
+            AI_TARGET_LABELS: ["face", "person", "animal", "vehicle", "instrument", "furniture", "building", "food", "object"],
             
             CSV_FILENAME: 'applemusic-3.csv', 
             CSV_INTERVAL_MS: 500000, 
@@ -203,8 +206,9 @@
             return true;
         }
 
-        // Helper function to prevent overlapping boxes on the same object
-        function calculateIoU(box1, box2) {
+        // Upgraded overlap checker: Uses Intersection over Minimum Area. 
+        // This catches "boxes inside boxes" (like a face inside a person).
+        function calculateOverlap(box1, box2) {
             const xA = Math.max(box1.xmin, box2.xmin);
             const yA = Math.max(box1.ymin, box2.ymin);
             const xB = Math.min(box1.xmax, box2.xmax);
@@ -216,7 +220,8 @@
             const box1Area = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin);
             const box2Area = (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin);
 
-            return interArea / (box1Area + box2Area - interArea);
+            const minArea = Math.min(box1Area, box2Area);
+            return interArea / minArea; 
         }
 
         async function analyzeWithCloudAI(imgObj, imgW, imgH) {
@@ -257,7 +262,10 @@
                         "Content-Type": "application/json"
                     },
                     method: "POST",
-                    body: JSON.stringify({ inputs: `data:image/jpeg;base64,${base64}` }),
+                    body: JSON.stringify({ 
+                        inputs: `data:image/jpeg;base64,${base64}`,
+                        parameters: { candidate_labels: CONFIG.AI_TARGET_LABELS }
+                    }),
                 });
 
                 if (hfResponse.status === 401) {
@@ -280,19 +288,27 @@
                 if (Array.isArray(result) && result.length > 0) {
                     setLight('online');
                     
-                    // Filter confident results, sort by score
                     const confidentSubjects = result
-                        .filter(item => item.score > 0.40)
-                        .sort((a, b) => b.score - a.score);
+                        .filter(item => item.score > 0.10) // Lowered slightly so it doesn't miss tricky objects
+                        .sort((a, b) => {
+                            // PRIORITY OVERRIDE: Faces jump to the front of the line automatically
+                            const aIsFace = a.label === 'face';
+                            const bIsFace = b.label === 'face';
+                            if (aIsFace && !bIsFace) return -1;
+                            if (bIsFace && !aIsFace) return 1;
+                            
+                            // Otherwise, sort normally by confidence score
+                            return b.score - a.score;
+                        });
                         
                     const topSubjects = [];
                     
-                    // Loop through and keep up to 3 subjects, discarding any that overlap heavily
                     for (const subject of confidentSubjects) {
                         let overlap = false;
                         for (const selected of topSubjects) {
-                            // If a new box overlaps more than 30% with an existing one, ignore it
-                            if (calculateIoU(subject.box, selected.box) > 0.30) {
+                            // If a new box shares more than 40% of its area with an existing one, ignore it.
+                            // Because 'face' is processed first, the 'person' box gets caught here and skipped!
+                            if (calculateOverlap(subject.box, selected.box) > 0.40) {
                                 overlap = true;
                                 break;
                             }
@@ -303,7 +319,6 @@
                         }
                     }
 
-                    // Fallback to the absolute best match if filtering wiped everything out
                     if (topSubjects.length === 0) topSubjects.push(result.sort((a, b) => b.score - a.score)[0]);
 
                     const labels = topSubjects.map(s => `${s.label}`).join(', ');
@@ -314,17 +329,13 @@
                         const scaleX = imgW / w;
                         const scaleY = imgH / h;
                         
-                        // Calculate center point
                         const centerX = (box.xmin + ((box.xmax - box.xmin) / 2)) * scaleX;
                         const centerY = (box.ymin + ((box.ymax - box.ymin) / 2)) * scaleY;
                         
-                        // Calculate raw dimensions
                         const rawW = (box.xmax - box.xmin) * scaleX;
                         const rawH = (box.ymax - box.ymin) * scaleY;
                         
-                        // STRICT SQUARE: Find the longest edge and add a little padding
                         const maxDimension = Math.max(rawW, rawH);
-                        // Prevent the square from being bigger than the actual image
                         const squareSize = Math.min(maxDimension * 1.15, Math.min(imgW, imgH));
                         
                         const highlightElement = document.createElement('div');
@@ -353,7 +364,6 @@
             let startX = centerX - (targetWidth / 2);
             let startY = centerY - (targetHeight / 2);
             
-            // Keeps the box strictly within the image bounds
             startX = Math.max(0, Math.min(imgW - targetWidth, startX));
             startY = Math.max(0, Math.min(imgH - targetHeight, startY));
             
