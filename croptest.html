@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Albums - Edge AI & Saliency</title>
+    <title>Albums - Edge AI & Color Saliency</title>
     
     <style>
         body {
@@ -113,15 +113,11 @@
             logStatus("Loading Edge AI...");
             setLight('waiting');
             try {
-                // The +esm flag forces jsDelivr to inject proper CORS headers for Safari
                 const visionModule = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm");
                 const { FaceDetector, FilesetResolver } = visionModule;
-                
-                // Using unpkg for the WASM binary path as it often has more reliable cross-origin headers
                 const visionResolver = await FilesetResolver.forVisionTasks(
                     "https://unpkg.com/@mediapipe/tasks-vision@0.10.3/wasm"
                 );
-                
                 faceDetector = await FaceDetector.createFromOptions(visionResolver, {
                     baseOptions: {
                         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
@@ -141,10 +137,7 @@
         async function init() {
             logStatus("Initializing...");
             requestWakeLock();
-            
-            // Load Face Detector first so it's ready for the first image
             await initFaceDetector();
-
             await loadCSV(); 
             checkLastFm(); 
             intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
@@ -179,8 +172,6 @@
             if (state.isTransitioning) return false; 
             state.isTransitioning = true;
             logStatus("Downloading Image...");
-
-            // Clear old highlights instantly
             document.querySelectorAll('.crop-highlight').forEach(el => el.remove());
 
             const displayLoader = new Image();
@@ -194,7 +185,6 @@
 
                 imgEl.src = imageUrl;
                 bgEl.style.backgroundImage = `url('${imageUrl}')`;
-
                 imgEl.style.opacity = '0';
                 bgEl.style.opacity = '0';
 
@@ -205,8 +195,6 @@
                         setTimeout(() => { 
                             state.isTransitioning = false;
                             if(onSuccessCallback) onSuccessCallback();
-                            
-                            // Call our local analysis engine
                             analyzeVisuals(displayLoader, displayLoader.width, displayLoader.height);
                         }, CONFIG.FADE_DURATION);
                     });
@@ -223,39 +211,35 @@
         async function analyzeVisuals(imgObj, imgW, imgH) {
             setLight('waiting');
             
-            // 1. Try Face Detection First (if loaded)
+            // 1. Try Face Detection First
             if (faceDetector) {
                 const detections = faceDetector.detect(imgObj);
-                
                 if (detections.detections.length > 0) {
                     logStatus(`Found ${detections.detections.length} Face(s)`);
                     setLight('online');
-                    
-                    // Sort by confidence, limit to top 3
                     const faces = detections.detections
                         .sort((a, b) => b.categories[0].score - a.categories[0].score)
                         .slice(0, 3);
 
                     faces.forEach(face => {
                         const box = face.boundingBox;
-                        const padding = box.width * 0.2; // 20% padding
+                        const padding = box.width * 0.6; // 60% padding for breathing room
                         const squareSize = Math.max(box.width, box.height) + (padding * 2);
                         const centerX = box.originX + (box.width / 2);
                         const centerY = box.originY + (box.height / 2);
-                        
                         drawHighlight(centerX, centerY, squareSize, imgW, imgH);
                     });
-                    return; // Exit early if faces are found
+                    return; 
                 }
             }
 
-            // 2. Fallback: Pure JS Classical Saliency
+            // 2. Fallback: Color-Aware Saliency
             logStatus("No faces. Running Saliency...");
             runClassicalSaliency(imgObj, imgW, imgH);
         }
 
         function runClassicalSaliency(imgObj, originalW, originalH) {
-            const processSize = 100; // Small grid for fast processing
+            const processSize = 100; 
             const canvas = document.createElement('canvas');
             canvas.width = processSize;
             canvas.height = processSize;
@@ -266,44 +250,51 @@
             const data = imgData.data;
             
             const scores = new Float32Array(processSize * processSize);
-            const luma = new Float32Array(processSize * processSize);
 
-            // Pass 1: Luminance & Saturation
+            // Pass 1: Saturation Only (Luma array removed for efficiency)
             for (let i = 0; i < data.length; i += 4) {
                 const r = data[i], g = data[i+1], b = data[i+2];
                 const idx = i / 4;
-                
-                luma[idx] = (0.299 * r + 0.587 * g + 0.114 * b);
-                
                 const max = Math.max(r, g, b);
                 const min = Math.min(r, g, b);
-                const saturation = max - min;
-                
-                scores[idx] += saturation * 0.5; 
+                scores[idx] += (max - min) * 0.5; // Add base saturation score
             }
 
-            // Pass 2: Edge Density Approximate (Sobel-like)
+            // Pass 2: Color-Aware Edge Density (Sobel-like)
+            // Minimum combined RGB difference to be considered a hard edge (filters out textures/gradients)
+            const COLOR_EDGE_THRESHOLD = 120; 
+
             for (let y = 1; y < processSize - 1; y++) {
                 for (let x = 1; x < processSize - 1; x++) {
-                    const idx = y * processSize + x;
+                    const cIdx = (y * processSize + x) * 4;
+                    const r = data[cIdx], g = data[cIdx+1], b = data[cIdx+2];
+
+                    const upIdx = cIdx - (processSize * 4);
+                    const downIdx = cIdx + (processSize * 4);
+                    const leftIdx = cIdx - 4;
+                    const rightIdx = cIdx + 4;
                     
-                    const up = luma[idx - processSize];
-                    const down = luma[idx + processSize];
-                    const left = luma[idx - 1];
-                    const right = luma[idx + 1];
+                    // Manhattan distance of RGB channels
+                    const dUp = Math.abs(r - data[upIdx]) + Math.abs(g - data[upIdx+1]) + Math.abs(b - data[upIdx+2]);
+                    const dDown = Math.abs(r - data[downIdx]) + Math.abs(g - data[downIdx+1]) + Math.abs(b - data[downIdx+2]);
+                    const dLeft = Math.abs(r - data[leftIdx]) + Math.abs(g - data[leftIdx+1]) + Math.abs(b - data[leftIdx+2]);
+                    const dRight = Math.abs(r - data[rightIdx]) + Math.abs(g - data[rightIdx+1]) + Math.abs(b - data[rightIdx+2]);
                     
-                    const edgeScore = Math.abs(luma[idx] - up) + Math.abs(luma[idx] - down) + 
-                                      Math.abs(luma[idx] - left) + Math.abs(luma[idx] - right);
-                                      
-                    scores[idx] += edgeScore * 1.5; // Weight edges heavily
+                    let edgeScore = 0;
+                    if (dUp > COLOR_EDGE_THRESHOLD) edgeScore += dUp;
+                    if (dDown > COLOR_EDGE_THRESHOLD) edgeScore += dDown;
+                    if (dLeft > COLOR_EDGE_THRESHOLD) edgeScore += dLeft;
+                    if (dRight > COLOR_EDGE_THRESHOLD) edgeScore += dRight;
+                    
+                    const scoreIdx = y * processSize + x;
+                    scores[scoreIdx] += edgeScore * 0.5; 
                 }
             }
 
-            // Pass 3: Pool regions to find the "hottest" areas
+            // Pass 3: Pool regions
             const regions = [];
-            const windowSize = 25; // 25x25 window (represents 25% of the image size)
+            const windowSize = 25; 
             const step = 10;
-            
             for (let y = 0; y <= processSize - windowSize; y += step) {
                 for (let x = 0; x <= processSize - windowSize; x += step) {
                     let regionScore = 0;
@@ -318,12 +309,10 @@
 
             regions.sort((a, b) => b.score - a.score);
 
-            // Extract top 3 non-overlapping regions
             const topRegions = [];
             for (const region of regions) {
                 let overlap = false;
                 for (const selected of topRegions) {
-                    // Simple AABB overlap check
                     if (region.x < selected.x + windowSize && region.x + windowSize > selected.x &&
                         region.y < selected.y + windowSize && region.y + windowSize > selected.y) {
                         overlap = true; break;
@@ -342,11 +331,9 @@
                     const centerX = (region.x + windowSize/2) * scale;
                     const centerY = (region.y + windowSize/2) * scale;
                     const squareSize = (windowSize * scale) * 1.2; 
-                    
                     drawHighlight(centerX, centerY, squareSize, originalW, originalH);
                 });
             } else {
-                // Ultimate fallback: Center square
                 drawHighlight(originalW/2, originalH/2, Math.min(originalW, originalH)*0.5, originalW, originalH);
             }
         }
@@ -361,10 +348,8 @@
         function applyAndClampBox(centerX, centerY, targetWidth, targetHeight, imgW, imgH, el) {
             let startX = centerX - (targetWidth / 2);
             let startY = centerY - (targetHeight / 2);
-            
             startX = Math.max(0, Math.min(imgW - targetWidth, startX));
             startY = Math.max(0, Math.min(imgH - targetHeight, startY));
-            
             if (el) {
                 el.style.left = (startX / imgW) * 100 + '%';
                 el.style.top = (startY / imgH) * 100 + '%';
