@@ -19,7 +19,7 @@ const CONFIG = {
     
     // Smart Zoom Settings
     SMART_ZOOM_DELAY: 30000, 
-    ZOOM_DEPTH: 2.0,         // How much CLOSER to get after filling the screen
+    ZOOM_DEPTH: 2.0,         // Base depth after filling screen
     TRANSITION_TIME: 5000,   
     HOLD_TIME: 20000,        
     
@@ -281,47 +281,51 @@ function runSmartZoomSequence() {
         return;
     }
 
-    // --- MATH: Calculate Scale to COVER Screen ---
     const winW = window.innerWidth;
     const winH = window.innerHeight;
     const rect = wrapperEl.getBoundingClientRect();
 
     // 1. Minimum Scale needed to ensure NO background is visible
-    // We compare Screen Aspect vs Image Aspect
     const scaleToCoverX = winW / rect.width;
     const scaleToCoverY = winH / rect.height;
-    
-    // We must take the LARGER of the two to ensure full coverage
-    const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05; // 1.05 buffer for safety
+    const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05;
 
-    // 2. Target Scale = Cover Scale * Zoom Depth
-    // This ensures we are always strictly larger than the screen
-    const targetScale = minCoverScale * CONFIG.ZOOM_DEPTH;
+    // 2. DYNAMIC TARGET SCALE
+    // Calculate the required scale to perfectly center off-center faces 
+    // without triggering the clamp/showing the background.
+    let requiredScale = minCoverScale * CONFIG.ZOOM_DEPTH;
+    
+    points.forEach(p => {
+        const dx = Math.abs(50 - p.x) / 100;
+        const dy = Math.abs(50 - p.y) / 100;
+        
+        // Limit max offset to 45% to prevent infinite/extreme scales
+        const safeDx = Math.min(dx, 0.45); 
+        const safeDy = Math.min(dy, 0.45);
+        
+        const reqX = (winW / 2) / ((0.5 - safeDx) * rect.width);
+        const reqY = (winH / 2) / ((0.5 - safeDy) * rect.height);
+        
+        requiredScale = Math.max(requiredScale, reqX * 1.05, reqY * 1.05);
+    });
+
+    // Cap the scale to a safe max (e.g., 4x) to avoid aggressive pixelation
+    const targetScale = Math.min(requiredScale, minCoverScale * 4.0);
 
     console.log(`Screen: ${winW}x${winH}, Wrapper: ${rect.width}x${rect.height}`);
     console.log(`Min Cover Scale: ${minCoverScale}, Target Scale: ${targetScale}`);
 
     const getTransform = (point) => {
-        // Point x/y are percentages (0-100) relative to image top-left
-        // Center of image is 50, 50
-        
-        // 1. Calculate the offset from center in PIXELS (at unscaled size)
-        // If point is at 20%, offset is (50 - 20) = 30% positive shift
         const shiftX_pct = 50 - point.x;
         const shiftY_pct = 50 - point.y;
         
-        // Convert to pixels at target scale
         let transX = (shiftX_pct / 100) * rect.width * targetScale;
         let transY = (shiftY_pct / 100) * rect.height * targetScale;
 
-        // 2. CLAMP TRANSLATION
-        // We must not translate so far that the edge of the image enters the viewport.
-        // Max translation allowed = (ScaledImageSize - ScreenSize) / 2
-        
+        // Clamp it (this will rarely hit now thanks to the dynamic targetScale!)
         const maxTransX = (rect.width * targetScale - winW) / 2;
         const maxTransY = (rect.height * targetScale - winH) / 2;
 
-        // Clamp it
         transX = Math.max(-maxTransX, Math.min(maxTransX, transX));
         transY = Math.max(-maxTransY, Math.min(maxTransY, transY));
 
@@ -334,20 +338,12 @@ function runSmartZoomSequence() {
 
     const keyframes = [
         { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
-        
-        // P1
         { transform: getTransform(points[0]), offset: T_MOVE / totalDuration }, 
         { transform: getTransform(points[0]), offset: (T_MOVE + T_HOLD) / totalDuration },
-        
-        // P2
         { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD) / totalDuration },
         { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD * 2) / totalDuration },
-        
-        // P3
         { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 2) / totalDuration },
         { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 3) / totalDuration },
-        
-        // Return
         { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
     ];
 
@@ -380,7 +376,6 @@ function analyzeImageForCrops(imgElement) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
     try {
-        // This draws the raw image to canvas, ignoring screen layout/backgrounds
         ctx.drawImage(imgElement, 0, 0, RES, RES);
     } catch(e) {
         return null;
@@ -409,8 +404,8 @@ function analyzeImageForCrops(imgElement) {
         scores[i/4] = pixelScore;
     }
 
-    // 1.5 is purely used for finding density, not display zoom
-    const cropSize = Math.floor(RES / 1.5); 
+    // Shrink the scanner size to precisely pinpoint features (30x30 grid)
+    const cropSize = Math.floor(RES / 5); 
     const results = [];
 
     for (let k = 0; k < 3; k++) {
@@ -439,6 +434,7 @@ function analyzeImageForCrops(imgElement) {
             y: ((bestY + cropSize/2) / RES) * 100
         });
 
+        // Blank out the found area to find the next distinct point
         for (let by = bestY; by < bestY + cropSize; by++) {
             for (let bx = bestX; bx < bestX + cropSize; bx++) {
                 if (by < RES && bx < RES) scores[by * RES + bx] = -99999;
@@ -512,19 +508,47 @@ function fetchItunesById(appleId, callback) {
 
 function fetchItunesBySearch(trackName, artistName, albumName, callback) {
     const cbName = 'cb_search_' + Math.floor(Math.random() * 100000);
+    
     let query = artistName + ' ' + trackName;
     if (albumName) query += ' ' + albumName;
+    
     const script = document.createElement('script');
-    script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+    // Bump limit to 15 to get a pool of releases to cross-reference
+    script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
+    
     window[cbName] = function(data) {
         cleanupScript(script, cbName);
         if (data && data.results && data.results.length > 0) {
-            callback(data.results[0].artworkUrl100.replace('100x100bb', '1200x1200bb')); 
-        } else callback(null);
+            let bestMatch = data.results[0]; // Fallback to the first result
+            
+            // If Last.fm provided an album name, try to find the exact match in the results
+            if (albumName) {
+                // Helper to normalize strings (lowercases and removes spaces/special characters)
+                const cleanString = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const targetAlbum = cleanString(albumName);
+
+                // Look for an album name that matches or is a substring (handles "Remastered", etc.)
+                const exactMatch = data.results.find(r => {
+                    if (!r.collectionName) return false;
+                    const itunesAlbum = cleanString(r.collectionName);
+                    return itunesAlbum.includes(targetAlbum) || targetAlbum.includes(itunesAlbum);
+                });
+
+                if (exactMatch) {
+                    bestMatch = exactMatch;
+                }
+            }
+
+            // Return the high-res artwork of the matched album
+            callback(bestMatch.artworkUrl100.replace('100x100bb', '1200x1200bb')); 
+        } else {
+            callback(null);
+        }
     };
     script.onerror = () => { cleanupScript(script, cbName); callback(null); };
     document.body.appendChild(script);
 }
+
 
 function cleanupScript(script, cbName) {
     if(document.body.contains(script)) document.body.removeChild(script);
