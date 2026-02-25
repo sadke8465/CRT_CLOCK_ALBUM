@@ -1,10 +1,5 @@
 /**
- * ALBUMS MODULE (Full-Screen Immersion Edition)
- * Behavior: 
- * 1. Load CSV Data.
- * 2. Check Last.fm.
- * 3. IF playing > 30s -> Scan image -> IF faces found: Zoom dynamically (with breathing room). IF NO faces: fallback to wider edge zoom.
- * 4. IF NOT playing -> Show CSV (Static Corner Animation).
+ * ALBUMS MODULE (Full-Screen Immersion Edition with ML Face Detection)
  */
 
 // --- CONFIGURATION ---
@@ -30,7 +25,10 @@ const CONFIG = {
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
     LAST_FM_USER: 'Noamsadi95',
     LAST_FM_POLL_INTERVAL: 5000, 
-    LAST_FM_TIMEOUT_MS: 20 * 60 * 1000 
+    LAST_FM_TIMEOUT_MS: 20 * 60 * 1000,
+
+    // ML Model URL (using a fast CDN for the weights)
+    MODEL_URL: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'
 };
 
 // --- STATE MANAGEMENT ---
@@ -46,7 +44,8 @@ let state = {
     lastFmZoomTriggered: false,     
     activeAnimation: null,          
     lastFmActivityTime: Date.now(),
-    isTransitioning: false
+    isTransitioning: false,
+    modelsLoaded: false // NEW: Tracks ML readiness
 };
 
 // --- MODULE INTERFACE ---
@@ -67,6 +66,9 @@ export async function init(container) {
             </video>
         </div>
     `;
+
+    // Load ML Models in the background
+    await loadFaceModels();
 
     requestWakeLock();
     await loadCSV(); 
@@ -93,9 +95,23 @@ function resetState() {
         lastFmZoomTriggered: false,
         activeAnimation: null,
         lastFmActivityTime: Date.now(),
-        isTransitioning: false
+        isTransitioning: false,
+        modelsLoaded: state.modelsLoaded // Preserve model load state across resets
     };
     intervals = { lastFm: null, csv: null };
+}
+
+// --- ML INITIALIZATION ---
+async function loadFaceModels() {
+    try {
+        console.log("[Albums] Loading ML Face Detection Models...");
+        // TinyFaceDetector is extremely fast and perfect for this use case
+        await faceapi.nets.tinyFaceDetector.loadFromUri(CONFIG.MODEL_URL);
+        state.modelsLoaded = true;
+        console.log("[Albums] ML Models Loaded Successfully.");
+    } catch (error) {
+        console.error("[Albums] Failed to load ML models. Will rely on edge fallback.", error);
+    }
 }
 
 // --- CORE LOGIC ---
@@ -168,7 +184,6 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
 // --- HELPER: START CSV MODE ---
 function startCsvMode() {
     if (state.currentMode === 'CSV' && intervals.csv) return;
-
     console.log("Starting CSV Mode");
     
     stopSmartAnimation(); 
@@ -266,16 +281,18 @@ function checkSmartZoomTimer() {
     const timePlaying = Date.now() - state.lastFmTrackStartTime;
     if (timePlaying > CONFIG.SMART_ZOOM_DELAY) {
         state.lastFmZoomTriggered = true;
+        // Notice this is now an async call
         runSmartZoomSequence();
     }
 }
 
-function runSmartZoomSequence() {
+async function runSmartZoomSequence() {
     const imgEl = document.getElementById('album-art');
     const wrapperEl = document.getElementById('art-wrapper');
     if (!imgEl || !wrapperEl) return;
 
-    const points = analyzeImageForCrops(imgEl);
+    // Await the ML analysis
+    const points = await analyzeImageForCrops(imgEl);
     
     if (!points || points.length === 0) {
         console.log("No features detected. Staying full screen.");
@@ -332,41 +349,34 @@ function runSmartZoomSequence() {
     const T_HOLD = CONFIG.HOLD_TIME;       
     const N = points.length;
     
-    // Total time: N Moves + 1 Final Move + N Holds
     const totalDuration = ((N + 1) * T_MOVE) + (N * T_HOLD);
-
-    // This is the magic easing: Super smooth start, glides in the middle, incredibly soft stop.
     const butteryEase = 'cubic-bezier(0.65, 0, 0.15, 1)';
 
     const keyframes = [];
     let currentTime = 0;
 
-    // Start Position
     keyframes.push({ 
         transform: 'translate(0px, 0px) scale(1)', 
         offset: 0,
-        easing: butteryEase // Applies to the first Zoom In
+        easing: butteryEase 
     });
 
     points.forEach((point) => {
-        // Move to the point
         currentTime += T_MOVE;
         keyframes.push({ 
             transform: getTransform(point), 
             offset: currentTime / totalDuration,
-            easing: 'linear' // Hold perfectly still while waiting
+            easing: 'linear' 
         });
         
-        // Hold on the point
         currentTime += T_HOLD;
         keyframes.push({ 
             transform: getTransform(point), 
             offset: currentTime / totalDuration,
-            easing: butteryEase // Applies to the NEXT Pan (or the final Zoom Out)
+            easing: butteryEase 
         });
     });
 
-    // Final Zoom Out
     currentTime += T_MOVE;
     keyframes.push({ 
         transform: 'translate(0px, 0px) scale(1)', 
@@ -376,7 +386,6 @@ function runSmartZoomSequence() {
     state.activeAnimation = wrapperEl.animate(keyframes, {
         duration: totalDuration,
         fill: 'forwards'
-        // We removed the global easing here so the per-keyframe easing works correctly!
     });
 
     state.activeAnimation.onfinish = () => {
@@ -393,8 +402,41 @@ function stopSmartAnimation() {
     if (wrapper) wrapper.style.transform = ''; 
 }
 
-// --- SCANNER (Separated Face & Edge Logic) ---
-function analyzeImageForCrops(imgElement) {
+// --- NEW ML SCANNER ---
+async function analyzeImageForCrops(imgElement) {
+    // Ensure exact dimensions are used regardless of CSS sizing
+    const imgWidth = imgElement.naturalWidth || imgElement.width;
+    const imgHeight = imgElement.naturalHeight || imgElement.height;
+
+    // 1. Try ML Face Detection First
+    if (state.modelsLoaded && window.faceapi) {
+        const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
+        
+        // Detect faces using the ML model
+        const detections = await faceapi.detectAllFaces(imgElement, options);
+
+        if (detections && detections.length > 0) {
+            // Map bounding boxes exactly to the percentage format your logic needs
+            return detections.map(det => {
+                const box = det.box;
+                const centerX = box.x + (box.width / 2);
+                const centerY = box.y + (box.height / 2);
+
+                return {
+                    type: 'face',
+                    x: (centerX / imgWidth) * 100,
+                    y: (centerY / imgHeight) * 100
+                };
+            });
+        }
+    }
+
+    // 2. Fallback to Edge Detection if ML fails or finds no faces
+    return fallbackEdgeDetection(imgElement, imgWidth, imgHeight);
+}
+
+// --- FALLBACK EDGE DETECTOR (Your old logic, isolated) ---
+function fallbackEdgeDetection(imgElement, sourceWidth, sourceHeight) {
     const RES = 150;
     const canvas = document.createElement('canvas');
     canvas.width = RES;
@@ -408,74 +450,17 @@ function analyzeImageForCrops(imgElement) {
     }
 
     const pixels = ctx.getImageData(0, 0, RES, RES).data;
-    const skinScores = new Float32Array(RES * RES);
     const edgeScores = new Float32Array(RES * RES);
 
     for (let i = 0; i < pixels.length; i += 4) {
         const r = pixels[i]; const g = pixels[i+1]; const b = pixels[i+2];
-
-        // Edge density
         let edge = 0;
         if ((i/4) % RES < RES - 1) {
             edge = Math.abs(r - pixels[i+4]) + Math.abs(g - pixels[i+5]) + Math.abs(b - pixels[i+6]);
         }
-
-        // Skin tones
-        let isSkin = 0;
-        if (r > 60 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15 && r - Math.min(g, b) > 15) {
-            isSkin = 1;
-        }
-
-        skinScores[i/4] = isSkin;
         edgeScores[i/4] = edge;
     }
 
-    // Pass 1: FACE DETECTING (Tight crops)
-    const faceCropSize = Math.floor(RES / 5); 
-    let faces = [];
-    let tempSkinScores = new Float32Array(skinScores);
-
-    for (let k = 0; k < 3; k++) {
-        let maxSkin = -1;
-        let bestX = 0, bestY = 0;
-
-        for (let y = 0; y <= RES - faceCropSize; y += 2) {
-            for (let x = 0; x <= RES - faceCropSize; x += 2) {
-                let skinCount = 0;
-                for (let sy = 0; sy < faceCropSize; sy += 5) {
-                    for (let sx = 0; sx < faceCropSize; sx += 5) {
-                        skinCount += tempSkinScores[(y + sy) * RES + (x + sx)];
-                    }
-                }
-                if (skinCount > maxSkin) {
-                    maxSkin = skinCount;
-                    bestX = x;
-                    bestY = y;
-                }
-            }
-        }
-
-        if (maxSkin >= 4) {
-            faces.push({
-                type: 'face',
-                x: ((bestX + faceCropSize/2) / RES) * 100,
-                y: ((bestY + faceCropSize/2) / RES) * 100
-            });
-            for (let by = bestY; by < bestY + faceCropSize; by++) {
-                for (let bx = bestX; bx < bestX + faceCropSize; bx++) {
-                    if (by < RES && bx < RES) tempSkinScores[by * RES + bx] = -999;
-                }
-            }
-        } else {
-            break; 
-        }
-    }
-
-    if (faces.length > 0) {
-        return faces;
-    }
-
-    // Pass 2: EDGE DETECTING (Larger crops, fallback only)
     const edgeCropSize = Math.floor(RES / 3); 
     let edges = [];
     let tempEdgeScores = new Float32Array(edgeScores);
@@ -519,7 +504,7 @@ function analyzeImageForCrops(imgElement) {
     return edges;
 }
 
-// --- HELPERS ---
+// --- HELPERS (Unchanged) ---
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -614,7 +599,7 @@ function cleanupScript(script, cbName) {
     delete window[cbName];
 }
 
-// --- STYLES ---
+// --- STYLES (Unchanged) ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
 
