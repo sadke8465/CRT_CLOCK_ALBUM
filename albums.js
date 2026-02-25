@@ -326,7 +326,7 @@ async function runSmartZoomSequence() {
         requiredScale = Math.max(requiredScale, reqX * 1.05, reqY * 1.05);
     });
 
-    const maxScaleMult = isFaceMode ? 2.4 : 1.6;
+    const maxScaleMult = isFaceMode ? 3.5 : 1.6;
     const targetScale = Math.min(requiredScale, minCoverScale * maxScaleMult);
 
     const getTransform = (point) => {
@@ -416,7 +416,9 @@ async function analyzeImageForCrops(imgElement) {
             return detections.map(det => {
                 const box = det.box;
                 const centerX = box.x + (box.width / 2);
-                const centerY = box.y + (box.height / 2);
+                // Shift the target UP by 20% of the bounding box height to include the hair/forehead.
+                // (0.5 is the exact center. We use 0.3 to aim higher up the Y-axis)
+                const centerY = box.y + (box.height * 0.3); 
 
                 return {
                     type: 'face',
