@@ -45,7 +45,7 @@ let state = {
     activeAnimation: null,          
     lastFmActivityTime: Date.now(),
     isTransitioning: false,
-    modelsLoaded: false // NEW: Tracks ML readiness
+    modelsLoaded: false // Tracks ML readiness
 };
 
 // --- MODULE INTERFACE ---
@@ -105,7 +105,6 @@ function resetState() {
 async function loadFaceModels() {
     try {
         console.log("[Albums] Loading ML Face Detection Models...");
-        // TinyFaceDetector is extremely fast and perfect for this use case
         await faceapi.nets.tinyFaceDetector.loadFromUri(CONFIG.MODEL_URL);
         state.modelsLoaded = true;
         console.log("[Albums] ML Models Loaded Successfully.");
@@ -130,8 +129,6 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     if (state.isTransitioning) return false; 
     state.isTransitioning = true;
 
-    stopSmartAnimation();
-
     const loader = new Image();
     loader.crossOrigin = "Anonymous"; 
     loader.src = imageUrl;
@@ -143,12 +140,18 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
 
         if (!imgEl || !bgEl || !wrapperEl) return; 
 
+        // 1. Fade out the current image while it is STILL moving/zoomed
         imgEl.style.opacity = '0';
         bgEl.style.opacity = '0';
 
+        // 2. Wait for the screen to go completely dark
         setTimeout(() => {
             if (!document.getElementById('album-art')) return;
 
+            // 3. Stop the animation and reset positioning silently in the dark
+            stopSmartAnimation(); 
+
+            // 4. Swap the actual image source
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
@@ -156,10 +159,10 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
             void wrapperEl.offsetWidth; 
             
             if (state.currentMode === 'CSV') {
-                wrapperEl.style.transform = ''; 
                 wrapperEl.classList.add('csv-animate');
             }
 
+            // 5. Fade the new image in
             requestAnimationFrame(() => {
                 imgEl.style.opacity = '1';
                 bgEl.style.opacity = '1';
@@ -186,7 +189,6 @@ function startCsvMode() {
     if (state.currentMode === 'CSV' && intervals.csv) return;
     console.log("Starting CSV Mode");
     
-    stopSmartAnimation(); 
     state.currentMode = 'CSV';
     
     if (intervals.csv) clearInterval(intervals.csv);
@@ -252,7 +254,6 @@ function switchToLastFm(track, trackIdentifier) {
     state.currentMode = 'LASTFM';
     state.lastFmTrackStartTime = Date.now();
     state.lastFmZoomTriggered = false;
-    stopSmartAnimation();
 
     const albumName = (track.album && track.album['#text']) ? track.album['#text'] : null;
 
@@ -281,7 +282,6 @@ function checkSmartZoomTimer() {
     const timePlaying = Date.now() - state.lastFmTrackStartTime;
     if (timePlaying > CONFIG.SMART_ZOOM_DELAY) {
         state.lastFmZoomTriggered = true;
-        // Notice this is now an async call
         runSmartZoomSequence();
     }
 }
@@ -404,19 +404,15 @@ function stopSmartAnimation() {
 
 // --- NEW ML SCANNER ---
 async function analyzeImageForCrops(imgElement) {
-    // Ensure exact dimensions are used regardless of CSS sizing
     const imgWidth = imgElement.naturalWidth || imgElement.width;
     const imgHeight = imgElement.naturalHeight || imgElement.height;
 
     // 1. Try ML Face Detection First
     if (state.modelsLoaded && window.faceapi) {
         const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
-        
-        // Detect faces using the ML model
         const detections = await faceapi.detectAllFaces(imgElement, options);
 
         if (detections && detections.length > 0) {
-            // Map bounding boxes exactly to the percentage format your logic needs
             return detections.map(det => {
                 const box = det.box;
                 const centerX = box.x + (box.width / 2);
@@ -431,11 +427,11 @@ async function analyzeImageForCrops(imgElement) {
         }
     }
 
-    // 2. Fallback to Edge Detection if ML fails or finds no faces
+    // 2. Fallback to Edge Detection
     return fallbackEdgeDetection(imgElement, imgWidth, imgHeight);
 }
 
-// --- FALLBACK EDGE DETECTOR (Your old logic, isolated) ---
+// --- FALLBACK EDGE DETECTOR ---
 function fallbackEdgeDetection(imgElement, sourceWidth, sourceHeight) {
     const RES = 150;
     const canvas = document.createElement('canvas');
@@ -504,7 +500,7 @@ function fallbackEdgeDetection(imgElement, sourceWidth, sourceHeight) {
     return edges;
 }
 
-// --- HELPERS (Unchanged) ---
+// --- HELPERS ---
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -599,7 +595,7 @@ function cleanupScript(script, cbName) {
     delete window[cbName];
 }
 
-// --- STYLES (Unchanged) ---
+// --- STYLES ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
 
