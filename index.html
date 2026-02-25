@@ -1,9 +1,133 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Clock Album</title>
+    <meta charset="UTF-8">
+    <title>TV Display</title>
+    <style>
+        /* Global styles */
+        body { 
+            margin: 0; 
+            background: #000; 
+            overflow: hidden; 
+        }
+        
+        #stage { 
+            width: 100vw; 
+            height: 100vh; 
+            
+            /* HARDWARE ACCELERATED FADE TRANSITION */
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+            will-change: opacity;
+        }
+    </style>
 </head>
 <body>
-    <h1>Welcome to the Clock Album</h1>
-    <p>This is a sample clock album page.</p>
+    <div id="stage"></div>
+
+    <script type="module">
+        import * as Albums from './albums.js';
+        import * as Clock from './clock.js';
+
+        // --- CONFIGURATION ---
+        const TOPIC = 'noams-tv-controller-882'; 
+
+        const stage = document.getElementById('stage');
+        let currentModule = null;
+        let isTransitioning = false;
+
+        /**
+         * MODULE SWITCHER
+         */
+        function loadModule(module) {
+            // 1. Prevent spamming or switching to the same module
+            if (isTransitioning || currentModule === module) return;
+
+            // 2. First Load (Instant)
+            if (!currentModule) {
+                initNewModule(module);
+                return;
+            }
+
+            // 3. Start Transition: Fade Out
+            isTransitioning = true;
+            stage.style.opacity = '0';
+
+            // 4. Wait for fade-out (1s), then swap
+            setTimeout(() => {
+                // CLEANUP OLD
+                if (currentModule && currentModule.cleanup) {
+                    currentModule.cleanup();
+                }
+                stage.innerHTML = '';
+
+                // START NEW
+                initNewModule(module);
+
+                // Fade In
+                requestAnimationFrame(() => {
+                    stage.style.opacity = '1';
+                    
+                    setTimeout(() => { 
+                        isTransitioning = false; 
+                    }, 1000);
+                });
+
+            }, 1000); 
+        }
+
+        function initNewModule(module) {
+            module.init(stage);
+            currentModule = module;
+        }
+
+        // --- INITIALIZATION ---
+        loadModule(Albums);
+        console.log(`[TV] System started. Listening on: ${TOPIC}`);
+
+        // --- REMOTE CONTROL LISTENER ---
+        const socket = new WebSocket(`wss://ntfy.sh/${TOPIC}/ws`);
+
+        socket.addEventListener('message', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.event !== 'message') return;
+
+                console.log(`[TV] Received command: ${data.message}`);
+                
+                if (data.message === 'CLOCK') {
+                    loadModule(Clock);
+                } else if (data.message === 'ARTWORK') {
+                    loadModule(Albums);
+                }
+            } catch (error) {
+                console.error("[TV] Error processing command:", error);
+            }
+        });
+        
+        socket.addEventListener('error', (error) => {
+            console.error("[TV] Connection Error:", error);
+        });
+
+        // --- AUTO-SCHEDULER (NEW) ---
+        // Checks the time every 10 seconds to trigger automatic switches
+        setInterval(() => {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+
+            // 6:30 AM -> Switch to Clock
+            if (hours === 6 && minutes === 30) {
+                // The loadModule function automatically ignores the request 
+                // if we are ALREADY on the clock, so this is safe.
+                loadModule(Clock);
+            } 
+            
+            // 10:00 AM -> Switch to Albums
+            else if (hours === 10 && minutes === 0) {
+                loadModule(Albums);
+            }
+        }, 10000); // Check every 10s to ensure we don't miss the minute
+    </script>
 </body>
 </html>
