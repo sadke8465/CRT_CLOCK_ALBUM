@@ -14,7 +14,7 @@ const CONFIG = {
     
     // Smart Zoom Settings
     SMART_ZOOM_DELAY: 30000, 
-    FACE_ZOOM_DEPTH: 1.6,    // Less aggressive zoom for faces (breathing room)
+    FACE_ZOOM_DEPTH: 2.1,    // Less aggressive zoom for faces (breathing room)
     EDGE_ZOOM_DEPTH: 1.25,   // Much wider zoom for non-face objects
     
     // Cinematic Timings
