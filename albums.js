@@ -3,7 +3,7 @@
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing > 30s -> Scan image -> Full Screen Zoom/Pan (No Backgrounds).
+ * 3. IF playing > 30s -> Scan image -> IF faces found: Zoom/Pan dynamically, then return. IF NO faces: stay full screen.
  * 4. IF NOT playing -> Show CSV (Static Corner Animation).
  */
 
@@ -276,8 +276,10 @@ function runSmartZoomSequence() {
     console.log("Running Smart Zoom Analysis...");
 
     const points = analyzeImageForCrops(imgEl);
-    if (!points || points.length < 3) {
-        console.log("Analysis failed. Skipping.");
+    
+    // IF NO FACES DETECTED: Do what we're doing now (Stay full screen, no animation)
+    if (!points || points.length === 0) {
+        console.log("No distinct faces/features detected. Staying full screen.");
         return;
     }
 
@@ -285,21 +287,16 @@ function runSmartZoomSequence() {
     const winH = window.innerHeight;
     const rect = wrapperEl.getBoundingClientRect();
 
-    // 1. Minimum Scale needed to ensure NO background is visible
     const scaleToCoverX = winW / rect.width;
     const scaleToCoverY = winH / rect.height;
     const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05;
 
-    // 2. DYNAMIC TARGET SCALE
-    // Calculate the required scale to perfectly center off-center faces 
-    // without triggering the clamp/showing the background.
     let requiredScale = minCoverScale * CONFIG.ZOOM_DEPTH;
     
     points.forEach(p => {
         const dx = Math.abs(50 - p.x) / 100;
         const dy = Math.abs(50 - p.y) / 100;
         
-        // Limit max offset to 45% to prevent infinite/extreme scales
         const safeDx = Math.min(dx, 0.45); 
         const safeDy = Math.min(dy, 0.45);
         
@@ -309,11 +306,7 @@ function runSmartZoomSequence() {
         requiredScale = Math.max(requiredScale, reqX * 1.05, reqY * 1.05);
     });
 
-    // Cap the scale to a safe max (e.g., 4x) to avoid aggressive pixelation
     const targetScale = Math.min(requiredScale, minCoverScale * 4.0);
-
-    console.log(`Screen: ${winW}x${winH}, Wrapper: ${rect.width}x${rect.height}`);
-    console.log(`Min Cover Scale: ${minCoverScale}, Target Scale: ${targetScale}`);
 
     const getTransform = (point) => {
         const shiftX_pct = 50 - point.x;
@@ -322,7 +315,6 @@ function runSmartZoomSequence() {
         let transX = (shiftX_pct / 100) * rect.width * targetScale;
         let transY = (shiftY_pct / 100) * rect.height * targetScale;
 
-        // Clamp it (this will rarely hit now thanks to the dynamic targetScale!)
         const maxTransX = (rect.width * targetScale - winW) / 2;
         const maxTransY = (rect.height * targetScale - winH) / 2;
 
@@ -332,20 +324,34 @@ function runSmartZoomSequence() {
         return `translate(${transX}px, ${transY}px) scale(${targetScale})`;
     };
 
+    // --- DYNAMIC TIMELINE CALCULATION ---
     const T_MOVE = CONFIG.TRANSITION_TIME; 
     const T_HOLD = CONFIG.HOLD_TIME;       
-    const totalDuration = (T_MOVE * 4) + (T_HOLD * 3);
+    const N = points.length;
+    
+    // Total time = (Moves for each face + 1 Move to return to center) + (Hold time for each face)
+    const totalDuration = ((N + 1) * T_MOVE) + (N * T_HOLD);
 
-    const keyframes = [
-        { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
-        { transform: getTransform(points[0]), offset: T_MOVE / totalDuration }, 
-        { transform: getTransform(points[0]), offset: (T_MOVE + T_HOLD) / totalDuration },
-        { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD) / totalDuration },
-        { transform: getTransform(points[1]), offset: (T_MOVE * 2 + T_HOLD * 2) / totalDuration },
-        { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 2) / totalDuration },
-        { transform: getTransform(points[2]), offset: (T_MOVE * 3 + T_HOLD * 3) / totalDuration },
-        { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
-    ];
+    const keyframes = [];
+    // Start at normal size
+    keyframes.push({ transform: 'translate(0px, 0px) scale(1)', offset: 0 });
+
+    let currentTime = 0;
+
+    // Loop through however many faces we found
+    points.forEach((point) => {
+        // Move to the face
+        currentTime += T_MOVE;
+        keyframes.push({ transform: getTransform(point), offset: currentTime / totalDuration });
+        
+        // Hold on the face
+        currentTime += T_HOLD;
+        keyframes.push({ transform: getTransform(point), offset: currentTime / totalDuration });
+    });
+
+    // Return to normal size
+    currentTime += T_MOVE;
+    keyframes.push({ transform: 'translate(0px, 0px) scale(1)', offset: 1 });
 
     state.activeAnimation = wrapperEl.animate(keyframes, {
         duration: totalDuration,
@@ -404,11 +410,14 @@ function analyzeImageForCrops(imgElement) {
         scores[i/4] = pixelScore;
     }
 
-    // Shrink the scanner size to precisely pinpoint features (30x30 grid)
     const cropSize = Math.floor(RES / 5); 
     const results = [];
+    
+    // Minimum score to consider an area a face/interest point
+    const MIN_SCORE_THRESHOLD = 10000; 
+    const MAX_FACES = 3;
 
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < MAX_FACES; k++) {
         let maxScore = -Infinity;
         let bestX = 0;
         let bestY = 0;
@@ -429,18 +438,24 @@ function analyzeImageForCrops(imgElement) {
             }
         }
 
+        console.log(`Scan ${k+1} Score:`, maxScore); // Useful for debugging your threshold
+
+        if (maxScore < MIN_SCORE_THRESHOLD) {
+            break; 
+        }
+
         results.push({
             x: ((bestX + cropSize/2) / RES) * 100,
             y: ((bestY + cropSize/2) / RES) * 100
         });
 
-        // Blank out the found area to find the next distinct point
         for (let by = bestY; by < bestY + cropSize; by++) {
             for (let bx = bestX; bx < bestX + cropSize; bx++) {
                 if (by < RES && bx < RES) scores[by * RES + bx] = -99999;
             }
         }
     }
+    
     return results;
 }
 
@@ -513,21 +528,17 @@ function fetchItunesBySearch(trackName, artistName, albumName, callback) {
     if (albumName) query += ' ' + albumName;
     
     const script = document.createElement('script');
-    // Bump limit to 15 to get a pool of releases to cross-reference
     script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15&country=${CONFIG.STORE_COUNTRY}&callback=${cbName}`;
     
     window[cbName] = function(data) {
         cleanupScript(script, cbName);
         if (data && data.results && data.results.length > 0) {
-            let bestMatch = data.results[0]; // Fallback to the first result
+            let bestMatch = data.results[0]; 
             
-            // If Last.fm provided an album name, try to find the exact match in the results
             if (albumName) {
-                // Helper to normalize strings (lowercases and removes spaces/special characters)
                 const cleanString = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const targetAlbum = cleanString(albumName);
 
-                // Look for an album name that matches or is a substring (handles "Remastered", etc.)
                 const exactMatch = data.results.find(r => {
                     if (!r.collectionName) return false;
                     const itunesAlbum = cleanString(r.collectionName);
@@ -538,8 +549,6 @@ function fetchItunesBySearch(trackName, artistName, albumName, callback) {
                     bestMatch = exactMatch;
                 }
             }
-
-            // Return the high-res artwork of the matched album
             callback(bestMatch.artworkUrl100.replace('100x100bb', '1200x1200bb')); 
         } else {
             callback(null);
@@ -548,7 +557,6 @@ function fetchItunesBySearch(trackName, artistName, albumName, callback) {
     script.onerror = () => { cleanupScript(script, cbName); callback(null); };
     document.body.appendChild(script);
 }
-
 
 function cleanupScript(script, cbName) {
     if(document.body.contains(script)) document.body.removeChild(script);
