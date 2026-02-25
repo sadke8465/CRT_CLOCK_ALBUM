@@ -1,12 +1,10 @@
 /**
- * ALBUMS MODULE (Edge AI + Saliency Smart Crop)
+ * ALBUMS MODULE (Full-Screen Immersion Edition with Edge AI)
  * Behavior: 
  * 1. Load CSV Data.
  * 2. Check Last.fm.
- * 3. IF playing -> Wait 30s -> Scan image (Face or Saliency) -> Smooth 15s Zoom.
- * - Face: Hold 60s -> Zoom Out 15s.
- * - Edges: Hold 30s -> Pan 15s -> Hold 30s -> Pan 15s -> Hold 30s -> Zoom out 15s.
- * 4. Wait 3 minutes -> Repeat cycle.
+ * 3. IF playing > 30s -> Scan image (Face or Saliency) -> Full Screen Zoom/Pan.
+ * 4. Wait 3 minutes, repeat zoom.
  * 5. IF NOT playing -> Show CSV (Static Corner Animation).
  */
 
@@ -20,13 +18,10 @@ const CONFIG = {
     FADE_DURATION: 700, 
     BLACK_HOLD_DURATION: 200, 
     
-    // Smart Zoom Settings (As requested)
-    ZOOM_DEPTH: 2.0,            // How much CLOSER to get after filling the screen
-    T_WAIT_INITIAL: 30000,      // 30 seconds before first zoom
-    T_PAN: 15000,               // 15 second fluid pan/zoom time
-    T_HOLD_FACE: 60000,         // 1 minute hold on face
-    T_HOLD_EDGE: 30000,         // 30 second hold per edge region
-    T_WAIT_REPEAT: 180000,      // 3 minutes before repeating cycle
+    // Smart Zoom Settings
+    SMART_ZOOM_DELAY: 30000,   // 30 seconds before zooming
+    SMART_ZOOM_CYCLE: 180000,  // 3 minutes before repeating zoom
+    ZOOM_DEPTH: 2.0,           // How much CLOSER to get after filling the screen
     
     // Last.fm Config
     LAST_FM_API_KEY: '7a767d135623f2bac77d858b3a6d9aba',
@@ -37,7 +32,7 @@ const CONFIG = {
 
 // --- STATE MANAGEMENT ---
 let intervals = { lastFm: null, csv: null };
-let faceDetector = null;
+let faceDetector = null; // Holds the AI Model globally
 
 let state = {
     startupDone: false,
@@ -49,14 +44,16 @@ let state = {
     activeAnimation: null,          
     lastFmActivityTime: Date.now(),
     isTransitioning: false,
-    timers: new Set(),              // strict registry for garbage collection
-    cachedAnalysis: null            // stores AI results so we don't recalculate the same album
+    
+    // Timers for strict memory cleanup
+    zoomStartTimer: null,
+    zoomCycleTimer: null
 };
 
 // --- MODULE INTERFACE ---
 
 export async function init(container) {
-    console.log("[Albums] Initializing...");
+    console.log("[Albums] Initializing AI & UI...");
     resetState();
     injectStyles();
 
@@ -73,7 +70,7 @@ export async function init(container) {
     `;
 
     requestWakeLock();
-    await initFaceDetector(); // Load Edge AI into memory once
+    await initFaceDetector();
     await loadCSV(); 
     checkLastFm(); 
     intervals.lastFm = setInterval(checkLastFm, CONFIG.LAST_FM_POLL_INTERVAL);
@@ -88,27 +85,21 @@ export function cleanup() {
 }
 
 function resetState() {
-    stopSmartAnimation();
-    state.startupDone = false;
-    state.currentMode = 'STARTUP';
-    state.csvTrackList = [];
-    state.csvIndex = 0;
-    state.displayedLastFmTrack = null;
-    state.lastFmTrackStartTime = 0;
-    state.lastFmActivityTime = Date.now();
-    state.isTransitioning = false;
-    state.cachedAnalysis = null;
+    clearZoomTimers();
+    state = {
+        startupDone: false,
+        currentMode: 'STARTUP', 
+        csvTrackList: [],
+        csvIndex: 0,
+        displayedLastFmTrack: null,
+        lastFmTrackStartTime: 0,
+        activeAnimation: null,
+        lastFmActivityTime: Date.now(),
+        isTransitioning: false,
+        zoomStartTimer: null,
+        zoomCycleTimer: null
+    };
     intervals = { lastFm: null, csv: null };
-}
-
-// Memory-safe timeout wrapper
-function registerTimer(callback, delay) {
-    const t = setTimeout(() => {
-        state.timers.delete(t);
-        callback();
-    }, delay);
-    state.timers.add(t);
-    return t;
 }
 
 // --- EDGE AI INITIALIZATION ---
@@ -117,7 +108,9 @@ async function initFaceDetector() {
     try {
         const visionModule = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm");
         const { FaceDetector, FilesetResolver } = visionModule;
-        const visionResolver = await FilesetResolver.forVisionTasks("https://unpkg.com/@mediapipe/tasks-vision@0.10.3/wasm");
+        const visionResolver = await FilesetResolver.forVisionTasks(
+            "https://unpkg.com/@mediapipe/tasks-vision@0.10.3/wasm"
+        );
         faceDetector = await FaceDetector.createFromOptions(visionResolver, {
             baseOptions: {
                 modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
@@ -125,15 +118,10 @@ async function initFaceDetector() {
             },
             runningMode: "IMAGE"
         });
-        console.log("[Albums] Edge AI Face Detector Loaded.");
-    } catch (e) {
-        console.error("[Albums] Face Detector failed to load. Will fallback to Saliency purely.", e);
+        console.log("[Albums] AI Ready");
+    } catch (error) {
+        console.error("[Albums] Face Detector failed to load. Will fallback to Saliency.", error);
     }
-}
-
-async function requestWakeLock() {
-    try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } 
-    catch (err) { document.getElementById('wake-video')?.play().catch(()=>{}); }
 }
 
 // --- VISUAL TRANSITION ENGINE ---
@@ -142,7 +130,6 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
     state.isTransitioning = true;
 
     stopSmartAnimation();
-    state.cachedAnalysis = null; // Clear cached AI data for new image
 
     const loader = new Image();
     loader.crossOrigin = "Anonymous"; 
@@ -152,28 +139,36 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
         const imgEl = document.getElementById('album-art');
         const bgEl = document.getElementById('bg-layer');
         const wrapperEl = document.getElementById('art-wrapper');
+
         if (!imgEl || !bgEl || !wrapperEl) return; 
 
         imgEl.style.opacity = '0';
         bgEl.style.opacity = '0';
 
         setTimeout(() => {
+            if (!document.getElementById('album-art')) return;
+
             imgEl.src = imageUrl;
             bgEl.style.backgroundImage = `url('${imageUrl}')`;
 
-            // Reset CSV animation
             wrapperEl.classList.remove('csv-animate');
             void wrapperEl.offsetWidth; 
-            if (state.currentMode === 'CSV') wrapperEl.classList.add('csv-animate');
+            
+            if (state.currentMode === 'CSV') {
+                wrapperEl.style.transform = ''; 
+                wrapperEl.classList.add('csv-animate');
+            }
 
             requestAnimationFrame(() => {
                 imgEl.style.opacity = '1';
                 bgEl.style.opacity = '1';
+
                 setTimeout(() => { 
                     state.isTransitioning = false;
                     if(onSuccessCallback) onSuccessCallback();
                 }, CONFIG.FADE_DURATION);
             });
+
         }, CONFIG.FADE_DURATION + CONFIG.BLACK_HOLD_DURATION + 100); 
     };
 
@@ -181,22 +176,25 @@ function performVisualTransition(imageUrl, onSuccessCallback) {
         state.isTransitioning = false;
         console.warn("Failed to load image:", imageUrl);
     };
+
     return true;
 }
 
-// --- HELPER: START CSV MODE ---
+// --- MODES ---
 function startCsvMode() {
     if (state.currentMode === 'CSV' && intervals.csv) return;
+    
     stopSmartAnimation(); 
     state.currentMode = 'CSV';
+    
     if (intervals.csv) clearInterval(intervals.csv);
     triggerCsvUpdate(); 
     intervals.csv = setInterval(triggerCsvUpdate, CONFIG.CSV_INTERVAL_MS);
 }
 
-// --- LAST.FM LOGIC ---
 async function checkLastFm() {
     const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${CONFIG.LAST_FM_USER}&api_key=${CONFIG.LAST_FM_API_KEY}&format=json&limit=1`;
+    
     try {
         const response = await fetch(url);
         const data = await response.json();
@@ -216,14 +214,20 @@ async function checkLastFm() {
             if (isNowPlaying) {
                 state.lastFmActivityTime = Date.now();
                 if (state.currentMode === 'CSV' || trackIdentifier !== state.displayedLastFmTrack) {
+                    if (intervals.csv) clearInterval(intervals.csv);
                     switchToLastFm(track, trackIdentifier);
                 }
-            } else if (state.currentMode === 'LASTFM' && (Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS)) {
-                startCsvMode();
+            } else {
+                if (state.currentMode === 'LASTFM' && Date.now() - state.lastFmActivityTime > CONFIG.LAST_FM_TIMEOUT_MS) {
+                    startCsvMode();
+                }
             }
         }
-    } catch (e) {
-        if (!state.startupDone) { state.startupDone = true; startCsvMode(); }
+    } catch (error) {
+        if (!state.startupDone) {
+            state.startupDone = true;
+            startCsvMode();
+        }
     }
 }
 
@@ -244,57 +248,58 @@ function switchToLastFm(track, trackIdentifier) {
         if (finalImage) {
             performVisualTransition(finalImage, () => {
                 state.displayedLastFmTrack = trackIdentifier;
-                // Kick off the smart zoom cycle (Wait 30s)
-                registerTimer(runSmartZoomSequence, CONFIG.T_WAIT_INITIAL);
+                // Start the 30-second delay for the smart crop once the image is visible
+                state.zoomStartTimer = setTimeout(runSmartZoomSequence, CONFIG.SMART_ZOOM_DELAY);
             });
         }
     });
 }
 
-// --- SMART ZOOM ORCHESTRATOR ---
+// --- SMART ZOOM LOGIC ---
+
+function clearZoomTimers() {
+    if (state.zoomStartTimer) clearTimeout(state.zoomStartTimer);
+    if (state.zoomCycleTimer) clearTimeout(state.zoomCycleTimer);
+    state.zoomStartTimer = null;
+    state.zoomCycleTimer = null;
+}
 
 function stopSmartAnimation() {
+    clearZoomTimers();
     if (state.activeAnimation) {
         state.activeAnimation.cancel();
         state.activeAnimation = null;
     }
-    // Purge all pending timeouts (prevents memory leaks and double-triggers)
-    state.timers.forEach(t => clearTimeout(t));
-    state.timers.clear();
-    
     const wrapper = document.getElementById('art-wrapper');
     if (wrapper) wrapper.style.transform = ''; 
 }
 
 async function runSmartZoomSequence() {
-    if (state.currentMode !== 'LASTFM' || state.isTransitioning) return;
+    if (state.currentMode !== 'LASTFM') return;
 
     const imgEl = document.getElementById('album-art');
     const wrapperEl = document.getElementById('art-wrapper');
-    if (!imgEl || !wrapperEl || !imgEl.complete || imgEl.naturalWidth === 0) {
-        registerTimer(runSmartZoomSequence, 5000); // Retry if image isn't ready
+    if (!imgEl || !wrapperEl || !imgEl.complete) return;
+
+    const result = await analyzeVisuals(imgEl);
+    if (!result || !result.points || result.points.length === 0) {
+        // Retry logic if analysis fails unexpectedly
+        state.zoomCycleTimer = setTimeout(runSmartZoomSequence, CONFIG.SMART_ZOOM_CYCLE);
         return;
     }
 
-    console.log("[Albums] Starting Smart Crop Analysis...");
-    
-    // Use cached analysis if we've already scanned this album, otherwise calculate
-    if (!state.cachedAnalysis) {
-        state.cachedAnalysis = await analyzeImageForCrops(imgEl);
-    }
-    
-    const analysis = state.cachedAnalysis;
-    if (!analysis || analysis.points.length === 0) return; // Silent fail, remain full screen
+    const points = result.points;
+    const isFace = result.type === 'face';
 
-    // Math: Calculate Scale to strictly COVER the screen + ZOOM_DEPTH
+    // Math: Calculate Scale to strictly COVER Screen
     const winW = window.innerWidth;
     const winH = window.innerHeight;
     const rect = wrapperEl.getBoundingClientRect();
-
-    const minCoverScale = Math.max(winW / rect.width, winH / rect.height) * 1.05; 
+    const scaleToCoverX = winW / rect.width;
+    const scaleToCoverY = winH / rect.height;
+    const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05; 
     const targetScale = minCoverScale * CONFIG.ZOOM_DEPTH;
 
-    // Math: Translates a percentage coordinate to clamped pixel movement
     const getTransform = (point) => {
         const shiftX_pct = 50 - point.x;
         const shiftY_pct = 50 - point.y;
@@ -314,117 +319,123 @@ async function runSmartZoomSequence() {
     let keyframes = [];
     let totalDuration = 0;
 
-    // Construct precise timing arrays for Web Animations API
-    if (analysis.type === 'FACE') {
-        const D_PAN = CONFIG.T_PAN;
-        const D_HOLD = CONFIG.T_HOLD_FACE;
-        totalDuration = D_PAN + D_HOLD + D_PAN; // 15 + 60 + 15 = 90s
-        
-        const pt = analysis.points[0];
+    if (isFace) {
+        // Face Sequence: 15s zoom in -> 60s hold -> 15s zoom out
+        const T_ZOOM = 15000;
+        const T_HOLD = 60000;
+        totalDuration = T_ZOOM * 2 + T_HOLD; // 90,000ms
+
         keyframes = [
             { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
-            { transform: getTransform(pt), offset: D_PAN / totalDuration },
-            { transform: getTransform(pt), offset: (D_PAN + D_HOLD) / totalDuration },
+            { transform: getTransform(points[0]), offset: T_ZOOM / totalDuration },
+            { transform: getTransform(points[0]), offset: (T_ZOOM + T_HOLD) / totalDuration },
             { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
         ];
-    } 
-    else if (analysis.type === 'EDGES') {
-        const D_PAN = CONFIG.T_PAN;
-        const D_HOLD = CONFIG.T_HOLD_EDGE;
-        totalDuration = (D_PAN * 4) + (D_HOLD * 3); // 15 + 30 + 15 + 30 + 15 + 30 + 15 = 150s
-        
-        const p1 = analysis.points[0], p2 = analysis.points[1], p3 = analysis.points[2];
+    } else {
+        // Edge Sequence: 15s zoom P1 -> 30s hold -> 15s pan P2 -> 30s hold -> 15s pan P3 -> 30s hold -> 15s zoom out
+        const T_MOVE = 15000;
+        const T_HOLD = 30000;
+        totalDuration = (T_MOVE * 4) + (T_HOLD * 3); // 150,000ms
+
         keyframes = [
             { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
-            { transform: getTransform(p1), offset: D_PAN / totalDuration },
-            { transform: getTransform(p1), offset: (D_PAN + D_HOLD) / totalDuration },
-            { transform: getTransform(p2), offset: (D_PAN * 2 + D_HOLD) / totalDuration },
-            { transform: getTransform(p2), offset: (D_PAN * 2 + D_HOLD * 2) / totalDuration },
-            { transform: getTransform(p3), offset: (D_PAN * 3 + D_HOLD * 2) / totalDuration },
-            { transform: getTransform(p3), offset: (D_PAN * 3 + D_HOLD * 3) / totalDuration },
+            { transform: getTransform(points[0]), offset: T_MOVE / totalDuration },
+            { transform: getTransform(points[0]), offset: (T_MOVE + T_HOLD) / totalDuration },
+            
+            { transform: getTransform(points[1] || points[0]), offset: (T_MOVE * 2 + T_HOLD) / totalDuration },
+            { transform: getTransform(points[1] || points[0]), offset: (T_MOVE * 2 + T_HOLD * 2) / totalDuration },
+            
+            { transform: getTransform(points[2] || points[0]), offset: (T_MOVE * 3 + T_HOLD * 2) / totalDuration },
+            { transform: getTransform(points[2] || points[0]), offset: (T_MOVE * 3 + T_HOLD * 3) / totalDuration },
+            
             { transform: 'translate(0px, 0px) scale(1)', offset: 1 }
         ];
     }
 
-    console.log(`[Albums] Executing ${analysis.type} zoom. Duration: ${totalDuration/1000}s`);
-
-    // Execute fluid animation
     state.activeAnimation = wrapperEl.animate(keyframes, {
         duration: totalDuration,
         fill: 'forwards',
-        easing: 'cubic-bezier(0.4, 0.0, 0.2, 1)' // Extremely smooth, non-abrupt start/stop
+        easing: 'ease-in-out' // Ensures buttery smooth starts/stops
     });
 
     state.activeAnimation.onfinish = () => {
         state.activeAnimation = null;
-        // Schedule the next cycle after 3 minutes
-        registerTimer(runSmartZoomSequence, CONFIG.T_WAIT_REPEAT);
+        // Schedule the next cycle in 3 minutes
+        state.zoomCycleTimer = setTimeout(runSmartZoomSequence, CONFIG.SMART_ZOOM_CYCLE);
     };
 }
 
-// --- SCANNER (MediaPipe + Pure JS Saliency Fallback) ---
-async function analyzeImageForCrops(imgElement) {
-    // 1. Edge AI Face Detection First
+// --- HEADLESS ANALYSIS ENGINE ---
+
+async function analyzeVisuals(imgObj) {
     if (faceDetector) {
-        const detections = faceDetector.detect(imgElement);
-        if (detections.detections.length > 0) {
-            // Get most prominent face
-            const bestFace = detections.detections.sort((a, b) => b.categories[0].score - a.categories[0].score)[0];
-            const box = bestFace.boundingBox;
-            const centerX_pct = ((box.originX + (box.width / 2)) / imgElement.naturalWidth) * 100;
-            const centerY_pct = ((box.originY + (box.height / 2)) / imgElement.naturalHeight) * 100;
-            return { type: 'FACE', points: [{ x: centerX_pct, y: centerY_pct }] };
-        }
+        try {
+            const detections = faceDetector.detect(imgObj);
+            if (detections.detections.length > 0) {
+                // Find highest confidence face
+                const topFace = detections.detections.sort((a, b) => b.categories[0].score - a.categories[0].score)[0];
+                const box = topFace.boundingBox;
+                
+                // Convert bounding box to percentage coordinates relative to original image size
+                const xPct = ((box.originX + (box.width / 2)) / imgObj.naturalWidth) * 100;
+                const yPct = ((box.originY + (box.height / 2)) / imgObj.naturalHeight) * 100;
+                
+                return { type: 'face', points: [{ x: xPct, y: yPct }] };
+            }
+        } catch (e) {}
     }
 
-    // 2. Pure JS Color-Aware Saliency Fallback
+    // Fallback: Saliency Engine
+    return runClassicalSaliency(imgObj);
+}
+
+function runClassicalSaliency(imgObj) {
     const processSize = 100; 
     const canvas = document.createElement('canvas');
     canvas.width = processSize;
     canvas.height = processSize;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    ctx.drawImage(imgElement, 0, 0, processSize, processSize);
+    try { ctx.drawImage(imgObj, 0, 0, processSize, processSize); } 
+    catch(e) { return null; }
+    
     const imgData = ctx.getImageData(0, 0, processSize, processSize);
     const data = imgData.data;
-    
     const scores = new Float32Array(processSize * processSize);
-
-    // Pass 1: Saturation
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        scores[i / 4] += (max - min) * 0.5; 
-    }
-
-    // Pass 2: Color-Aware Edge Density (Sobel-like)
     const COLOR_EDGE_THRESHOLD = 120; 
+
+    // Pass 1 & 2 combined: Saturation & Edge differences
     for (let y = 1; y < processSize - 1; y++) {
         for (let x = 1; x < processSize - 1; x++) {
             const cIdx = (y * processSize + x) * 4;
             const r = data[cIdx], g = data[cIdx+1], b = data[cIdx+2];
 
-            const dUp = Math.abs(r - data[cIdx-(processSize*4)]) + Math.abs(g - data[cIdx-(processSize*4)+1]) + Math.abs(b - data[cIdx-(processSize*4)+2]);
-            const dDown = Math.abs(r - data[cIdx+(processSize*4)]) + Math.abs(g - data[cIdx+(processSize*4)+1]) + Math.abs(b - data[cIdx+(processSize*4)+2]);
-            const dLeft = Math.abs(r - data[cIdx-4]) + Math.abs(g - data[cIdx-3]) + Math.abs(b - data[cIdx-2]);
-            const dRight = Math.abs(r - data[cIdx+4]) + Math.abs(g - data[cIdx+5]) + Math.abs(b - data[cIdx+6]);
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            let score = (max - min) * 0.5;
+
+            const upIdx = cIdx - (processSize * 4);
+            const downIdx = cIdx + (processSize * 4);
+            const leftIdx = cIdx - 4;
+            const rightIdx = cIdx + 4;
             
-            let edgeScore = 0;
-            if (dUp > COLOR_EDGE_THRESHOLD) edgeScore += dUp;
-            if (dDown > COLOR_EDGE_THRESHOLD) edgeScore += dDown;
-            if (dLeft > COLOR_EDGE_THRESHOLD) edgeScore += dLeft;
-            if (dRight > COLOR_EDGE_THRESHOLD) edgeScore += dRight;
+            const dUp = Math.abs(r - data[upIdx]) + Math.abs(g - data[upIdx+1]) + Math.abs(b - data[upIdx+2]);
+            const dDown = Math.abs(r - data[downIdx]) + Math.abs(g - data[downIdx+1]) + Math.abs(b - data[downIdx+2]);
+            const dLeft = Math.abs(r - data[leftIdx]) + Math.abs(g - data[leftIdx+1]) + Math.abs(b - data[leftIdx+2]);
+            const dRight = Math.abs(r - data[rightIdx]) + Math.abs(g - data[rightIdx+1]) + Math.abs(b - data[rightIdx+2]);
             
-            scores[y * processSize + x] += edgeScore * 0.5; 
+            if (dUp > COLOR_EDGE_THRESHOLD) score += dUp;
+            if (dDown > COLOR_EDGE_THRESHOLD) score += dDown;
+            if (dLeft > COLOR_EDGE_THRESHOLD) score += dLeft;
+            if (dRight > COLOR_EDGE_THRESHOLD) score += dRight;
+            
+            scores[y * processSize + x] += score; 
         }
     }
 
-    // Pass 3: Pool regions to find top 3
     const regions = [];
     const windowSize = 25; 
     const step = 10;
-    
     for (let y = 0; y <= processSize - windowSize; y += step) {
         for (let x = 0; x <= processSize - windowSize; x += step) {
             let regionScore = 0;
@@ -438,8 +449,8 @@ async function analyzeImageForCrops(imgElement) {
     }
 
     regions.sort((a, b) => b.score - a.score);
+
     const topRegions = [];
-    
     for (const region of regions) {
         let overlap = false;
         for (const selected of topRegions) {
@@ -449,27 +460,24 @@ async function analyzeImageForCrops(imgElement) {
             }
         }
         if (!overlap) {
-            topRegions.push(region);
+            topRegions.push({
+                x: region.x + windowSize/2, // Calculate center and map to 0-100% since processSize is 100
+                y: region.y + windowSize/2
+            });
             if (topRegions.length >= 3) break;
         }
     }
 
-    // Memory cleanup: destroy canvas data so GC can eat it
-    canvas.width = 0; 
-    canvas.height = 0;
-
-    if (topRegions.length < 3) return { type: 'EDGES', points: [] };
-
-    // Convert process-grid coordinates back to absolute percentages (0-100)
-    const points = topRegions.map(r => ({
-        x: ((r.x + windowSize/2) / processSize) * 100,
-        y: ((r.y + windowSize/2) / processSize) * 100
-    }));
-
-    return { type: 'EDGES', points };
+    if (topRegions.length === 0) topRegions.push({x: 50, y: 50});
+    return { type: 'edge', points: topRegions };
 }
 
-// --- DATA HELPERS ---
+// --- API HELPERS ---
+async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } 
+    catch (err) { const vid = document.getElementById('wake-video'); if(vid) vid.play().catch(e=>{}); }
+}
+
 function shuffleArray(array) {
     for (let i = array.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -481,28 +489,24 @@ async function loadCSV() {
     try {
         const response = await fetch(CONFIG.CSV_FILENAME);
         if (!response.ok) return; 
-        parseCSV(await response.text());
-    } catch (error) { console.error("CSV Load Error", error); }
-}
+        const text = await response.text();
+        const lines = text.split('\n').filter(l => l.trim() !== '');
+        if (lines.length < 2) return;
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const idIndex = headers.indexOf('id');
+        if (idIndex === -1) return;
+        const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
 
-function parseCSV(text) {
-    const lines = text.split('\n').filter(l => l.trim() !== '');
-    if (lines.length < 2) return;
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const idIndex = headers.indexOf('id');
-    if (idIndex === -1) return;
-    const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
-
-    for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
-        if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
-    }
-    if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
+            if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
+        }
+        if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
+    } catch (error) {}
 }
 
 function triggerCsvUpdate() {
-    if (state.currentMode !== 'CSV') return;
-    if (state.csvTrackList.length === 0) return;
+    if (state.currentMode !== 'CSV' || state.csvTrackList.length === 0) return;
 
     const track = state.csvTrackList[state.csvIndex];
     if(!track) return; 
@@ -511,7 +515,7 @@ function triggerCsvUpdate() {
         if (url) performVisualTransition(url);
         else {
              state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
-             registerTimer(triggerCsvUpdate, 1000); 
+             setTimeout(triggerCsvUpdate, 1000); 
         }
     });
     state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
@@ -555,13 +559,11 @@ function cleanupScript(script, cbName) {
 // --- STYLES ---
 function injectStyles() {
     if (document.getElementById('albums-module-styles')) return;
-
     const style = document.createElement('style');
     style.id = 'albums-module-styles';
     style.textContent = `
         #container {
-            position: relative;
-            width: 100vw; height: 100vh;
+            position: relative; width: 100vw; height: 100vh;
             display: flex; justify-content: center; align-items: center;
             overflow: hidden; background-color: #000;
         }
@@ -575,18 +577,14 @@ function injectStyles() {
             position: relative; z-index: 10;
             height: 90vh; aspect-ratio: 1.4 / 1;
             max-width: 90vw; max-height: 90vh;
-            display: flex;
-            box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
+            display: flex; box-shadow: 0 0 120px 10px rgba(0,0,0,0.5);
             border-radius: 24px; overflow: hidden; 
-            will-change: transform;
         }
         #album-art {
             width: 100%; height: 100%; object-fit: fill; 
             opacity: 0; transition: opacity 1s;
         }
-        .csv-animate {
-            animation: cameraPanCycle 250s ease-in-out 2 forwards;
-        }
+        .csv-animate { animation: cameraPanCycle 250s ease-in-out 2 forwards; }
         @keyframes cameraPanCycle {
             0%, 2% { transform: scale(1) translate(0, 0); }
             4%, 20% { transform: scale(2) translate(calc(50% - 25vw), calc(50% - 25vh)); }
