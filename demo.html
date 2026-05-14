@@ -4,434 +4,103 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DEMOLITION KITCHEN</title>
+<title>DK</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Space+Mono:ital@0;1&display=swap');
-
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-:root {
-–red: #ff2200;
-–white: #f5f0e8;
-–black: #0a0a0a;
-}
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
 width: 100%; height: 100%;
-background: var(–black);
+background: #000;
 overflow: hidden;
-font-family: ‘Space Mono’, monospace;
 cursor: none;
 }
 
-/* ── VIDEO ── */
-#video-wrap {
+.vid {
 position: fixed;
 inset: 0;
-z-index: 0;
-}
-
-#player {
 width: 100%;
 height: 100%;
-object-fit: cover;   /* fills, crops, never letterboxes */
+object-fit: cover;
 display: block;
-}
-
-/* ── SCANLINE OVERLAY ── */
-#scanlines {
-position: fixed;
-inset: 0;
+opacity: 0;
+transition: opacity 0.35s ease;
 z-index: 1;
-pointer-events: none;
-background: repeating-linear-gradient(
-to bottom,
-transparent 0px,
-transparent 3px,
-rgba(0,0,0,0.08) 3px,
-rgba(0,0,0,0.08) 4px
-);
 }
 
-/* ── VIGNETTE ── */
-#vignette {
-position: fixed;
-inset: 0;
-z-index: 2;
-pointer-events: none;
-background: radial-gradient(ellipse at center,
-transparent 50%,
-rgba(0,0,0,0.75) 100%
-);
-}
-
-/* ── UI LAYER ── */
-#ui {
-position: fixed;
-inset: 0;
-z-index: 10;
-pointer-events: none;
-display: flex;
-flex-direction: column;
-justify-content: space-between;
-padding: 28px 32px;
-}
-
-/* TOP */
-#top {
-display: flex;
-align-items: flex-start;
-justify-content: space-between;
-}
-
-#wordmark {
-font-family: ‘Black Han Sans’, sans-serif;
-font-size: clamp(18px, 2.5vw, 28px);
-letter-spacing: 0.18em;
-color: var(–white);
-text-transform: uppercase;
-mix-blend-mode: normal;
-line-height: 1;
-}
-
-#wordmark span {
-color: var(–red);
-}
-
-#status {
-font-size: 10px;
-letter-spacing: 0.2em;
-color: rgba(245,240,232,0.4);
-text-transform: uppercase;
-text-align: right;
-line-height: 1.8;
-}
-
-#status .dot {
-display: inline-block;
-width: 6px; height: 6px;
-border-radius: 50%;
-background: var(–red);
-margin-right: 6px;
-vertical-align: middle;
-animation: blink 1.2s step-start infinite;
-}
-
-@keyframes blink {
-0%, 100% { opacity: 1; }
-50%       { opacity: 0; }
-}
-
-/* BOTTOM */
-#bottom {
-display: flex;
-align-items: flex-end;
-justify-content: space-between;
-gap: 20px;
-}
-
-#meta {
-max-width: 60%;
-}
-
-#title-display {
-font-family: ‘Black Han Sans’, sans-serif;
-font-size: clamp(14px, 2vw, 22px);
-letter-spacing: 0.06em;
-color: var(–white);
-text-transform: uppercase;
-line-height: 1.2;
-text-shadow: 0 2px 20px rgba(0,0,0,0.9);
-opacity: 0;
-transform: translateY(8px);
-transition: opacity 0.6s ease, transform 0.6s ease;
-}
-
-#title-display.visible {
+.vid.active {
 opacity: 1;
-transform: translateY(0);
+z-index: 2;
 }
 
-#identifier-display {
-font-size: 9px;
-letter-spacing: 0.2em;
-color: rgba(245,240,232,0.35);
-margin-top: 6px;
-text-transform: uppercase;
-opacity: 0;
-transition: opacity 0.6s ease 0.2s;
-}
-
-#identifier-display.visible { opacity: 1; }
-
-/* NEXT BUTTON */
-#next-btn {
-pointer-events: all;
-cursor: none;
-background: none;
-border: 1.5px solid rgba(245,240,232,0.25);
-color: var(–white);
-font-family: ‘Space Mono’, monospace;
-font-size: 10px;
-letter-spacing: 0.22em;
-text-transform: uppercase;
-padding: 12px 20px;
-white-space: nowrap;
-position: relative;
-overflow: hidden;
-transition: border-color 0.2s, color 0.2s;
-flex-shrink: 0;
-}
-
-#next-btn::before {
-content: ‘’;
-position: absolute;
-inset: 0;
-background: var(–red);
-transform: translateX(-101%);
-transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
-z-index: -1;
-}
-
-#next-btn:hover {
-border-color: var(–red);
-}
-
-#next-btn:hover::before {
-transform: translateX(0);
-}
-
-#next-btn:active {
-transform: scale(0.97);
-}
-
-#next-btn:disabled {
-opacity: 0.3;
-pointer-events: none;
-}
-
-/* LOADING STATE */
-#loader {
+#flash {
 position: fixed;
 inset: 0;
-z-index: 50;
-background: var(–black);
-display: flex;
-flex-direction: column;
-align-items: center;
-justify-content: center;
-gap: 24px;
-transition: opacity 0.5s ease;
-}
-
-#loader.hidden {
+background: #000;
+z-index: 10;
 opacity: 0;
 pointer-events: none;
+transition: opacity 0.25s ease;
 }
 
-#loader-title {
-font-family: ‘Black Han Sans’, sans-serif;
-font-size: clamp(28px, 6vw, 72px);
-letter-spacing: 0.1em;
-color: var(–white);
-text-transform: uppercase;
-}
-
-#loader-title span { color: var(–red); }
-
-#loader-sub {
-font-size: 10px;
-letter-spacing: 0.3em;
-color: rgba(245,240,232,0.35);
-text-transform: uppercase;
-}
-
-#progress-bar {
-width: 160px;
-height: 1px;
-background: rgba(245,240,232,0.1);
-position: relative;
-overflow: hidden;
-}
-
-#progress-fill {
-height: 100%;
-background: var(–red);
-width: 0%;
-transition: width 0.3s ease;
-}
-
-/* ERROR */
-#error-msg {
-position: fixed;
-bottom: 80px;
-left: 50%;
-transform: translateX(-50%);
-z-index: 60;
-font-size: 10px;
-letter-spacing: 0.15em;
-color: var(–red);
-text-transform: uppercase;
-opacity: 0;
-transition: opacity 0.3s;
-pointer-events: none;
-}
-
-#error-msg.show { opacity: 1; }
-
-/* CUSTOM CURSOR */
-#cursor {
-position: fixed;
-width: 12px; height: 12px;
-border: 1.5px solid var(–white);
-border-radius: 50%;
-pointer-events: none;
-z-index: 9999;
-transform: translate(-50%, -50%);
-transition: transform 0.08s ease, width 0.15s, height 0.15s, border-color 0.15s;
-mix-blend-mode: difference;
-}
-
-#cursor.big {
-width: 40px; height: 40px;
-border-color: var(–red);
-}
+#flash.on { opacity: 1; }
 </style>
 
 </head>
 <body>
 
-<!-- Custom cursor -->
+<video id="v0" class="vid active" autoplay muted playsinline></video>
+<video id="v1" class="vid"        autoplay muted playsinline></video>
 
-<div id="cursor"></div>
-
-<!-- Loading screen -->
-
-<div id="loader">
-  <div id="loader-title">DEMOLITION<span>KITCHEN</span></div>
-  <div id="loader-sub">Pulling from the archive</div>
-  <div id="progress-bar"><div id="progress-fill"></div></div>
-</div>
-
-<!-- Video -->
-
-<div id="video-wrap">
-  <video id="player" autoplay muted playsinline></video>
-</div>
-
-<!-- Overlays -->
-
-<div id="scanlines"></div>
-<div id="vignette"></div>
-
-<!-- UI -->
-
-<div id="ui">
-  <div id="top">
-    <div id="wordmark">Demolition<span>Kitchen</span></div>
-    <div id="status">
-      <div><span class="dot"></span>Live Archive</div>
-      <div id="count-display">— / —</div>
-    </div>
-  </div>
-  <div id="bottom">
-    <div id="meta">
-      <div id="title-display"></div>
-      <div id="identifier-display"></div>
-    </div>
-    <button id="next-btn" disabled>Next →</button>
-  </div>
-</div>
-
-<div id="error-msg" id="error-msg"></div>
+<div id="flash"></div>
 
 <script>
-  // ── Cursor ──
-  const cursor = document.getElementById('cursor');
-  const nextBtn = document.getElementById('next-btn');
-
-  document.addEventListener('mousemove', e => {
-    cursor.style.left = e.clientX + 'px';
-    cursor.style.top = e.clientY + 'px';
-  });
-
-  nextBtn.addEventListener('mouseenter', () => cursor.classList.add('big'));
-  nextBtn.addEventListener('mouseleave', () => cursor.classList.remove('big'));
-
-  // ── State ──
   const SEARCH_URL =
     'https://archive.org/advancedsearch.php' +
     '?q=collection%3Ademolitionkitchenvideo+AND+mediatype%3Amovies' +
-    '&fl[]=identifier,title,mediatype' +
-    '&rows=500&page=1&output=json';
-
-  const METADATA_BASE = 'https://archive.org/metadata/';
+    '&fl[]=identifier,title&rows=500&page=1&output=json';
+  const META_BASE     = 'https://archive.org/metadata/';
   const DOWNLOAD_BASE = 'https://archive.org/download/';
-  const VIDEO_FORMATS = ['h.264', 'mpeg4', 'mp4', 'ogg video', 'webm', 'mov', 'avi', 'mkv'];
-  const VIDEO_EXTS    = ['.mp4', '.webm', '.ogv', '.mov'];
+  const VIDEO_FMTS    = ['h.264','mpeg4','mp4','ogg video','webm'];
+  const VIDEO_EXTS    = ['.mp4','.webm','.ogv'];
+  const READY_THRESH  = 3; // seconds buffered before allowing switch
 
-  let items = [];
-  let usedIndices = new Set();
-  const player = document.getElementById('player');
-  const loader = document.getElementById('loader');
-  const fill = document.getElementById('progress-fill');
-  const titleEl = document.getElementById('title-display');
-  const identEl = document.getElementById('identifier-display');
-  const countEl = document.getElementById('count-display');
-  const errorEl = document.getElementById('error-msg');
+  let items         = [];
+  let used          = new Set();
+  let activeIdx     = 0;
+  let switchPending = false;
+  let preloading    = false;
+  let preloadDone   = false;
+  let booting       = true;
 
-  function showError(msg) {
-    errorEl.textContent = msg;
-    errorEl.classList.add('show');
-    setTimeout(() => errorEl.classList.remove('show'), 3000);
-  }
+  const vids  = [document.getElementById('v0'), document.getElementById('v1')];
+  const flash = document.getElementById('flash');
 
-  function setProgress(pct) {
-    fill.style.width = pct + '%';
-  }
-
-  // ── Fetch all items ──
   async function fetchItems() {
-    setProgress(20);
-    const res = await fetch(SEARCH_URL);
-    setProgress(60);
+    const res  = await fetch(SEARCH_URL);
     const json = await res.json();
-    items = (json.response?.docs || []).filter(d => d.mediatype === 'movies');
-    setProgress(90);
-    if (items.length === 0) throw new Error('No video items found');
-    countEl.textContent = `0 / ${items.length}`;
-    setProgress(100);
+    items = (json.response?.docs || []).filter(d => d.mediatype !== 'audio');
+    if (!items.length) throw new Error('No items');
   }
 
-  // ── Pick a random unused item ──
   function pickItem() {
-    if (usedIndices.size >= items.length) usedIndices.clear(); // cycle
+    if (used.size >= items.length) used.clear();
     let idx;
-    do { idx = Math.floor(Math.random() * items.length); }
-    while (usedIndices.has(idx));
-    usedIndices.add(idx);
-    countEl.textContent = `${usedIndices.size} / ${items.length}`;
+    do { idx = Math.floor(Math.random() * items.length); } while (used.has(idx));
+    used.add(idx);
     return items[idx];
   }
 
-  // ── Fetch metadata to find a real video file ──
   async function getVideoUrl(identifier) {
-    const res = await fetch(METADATA_BASE + identifier);
-    const json = await res.json();
+    const res   = await fetch(META_BASE + identifier);
+    const json  = await res.json();
     const files = json.files || [];
-
-    // Prefer mp4 h.264, then other video formats
     const ranked = files
       .filter(f => {
-        const fmt = (f.format || '').toLowerCase();
-        const name = (f.name || '').toLowerCase();
-        return (
-          VIDEO_FORMATS.some(v => fmt.includes(v)) ||
-          VIDEO_EXTS.some(e => name.endsWith(e))
-        );
+        const fmt  = (f.format || '').toLowerCase();
+        const name = (f.name   || '').toLowerCase();
+        return VIDEO_FMTS.some(v => fmt.includes(v)) || VIDEO_EXTS.some(e => name.endsWith(e));
       })
       .sort((a, b) => {
-        // prefer h.264 mp4
         const score = f => {
           const fmt = (f.format || '').toLowerCase();
           if (fmt.includes('h.264')) return 0;
@@ -441,75 +110,131 @@ border-color: var(–red);
         };
         return score(a) - score(b);
       });
-
-    if (ranked.length === 0) return null;
+    if (!ranked.length) return null;
     return DOWNLOAD_BASE + identifier + '/' + encodeURIComponent(ranked[0].name);
   }
 
-  // ── Load next video ──
-  async function loadNext() {
-    nextBtn.disabled = true;
+  async function preloadNext() {
+    if (preloading || preloadDone) return;
+    preloading = true;
 
-    // hide meta
-    titleEl.classList.remove('visible');
-    identEl.classList.remove('visible');
+    const next = vids[1 - activeIdx];
+    next.src = '';
+    next.removeAttribute('src');
 
     let attempts = 0;
-    while (attempts < 5) {
+    while (attempts < 8) {
       const item = pickItem();
       attempts++;
-
       try {
         const url = await getVideoUrl(item.identifier);
-        if (!url) { showError('No video file — skipping'); continue; }
+        if (!url) continue;
 
-        // set source
-        player.src = url;
-        player.load();
-        player.play().catch(() => {}); // autoplay may need user gesture for audio
+        await new Promise((resolve, reject) => {
+          next.src = url;
+          next.load();
 
-        // show meta
-        titleEl.textContent = item.title || item.identifier;
-        identEl.textContent = item.identifier;
-        titleEl.classList.add('visible');
-        identEl.classList.add('visible');
+          function cleanup() {
+            next.removeEventListener('progress',  onProgress);
+            next.removeEventListener('canplay',   onCanPlay);
+            next.removeEventListener('error',     onError);
+          }
+          const onProgress = () => {
+            if (next.buffered.length && next.buffered.end(0) >= READY_THRESH) {
+              cleanup(); resolve();
+            }
+          };
+          const onCanPlay = () => { cleanup(); resolve(); };
+          const onError   = () => { cleanup(); reject(new Error('video error')); };
 
-        nextBtn.disabled = false;
+          next.addEventListener('progress', onProgress);
+          next.addEventListener('canplay',  onCanPlay);
+          next.addEventListener('error',    onError);
+        });
+
+        preloading  = false;
+        preloadDone = true;
+
+        if (switchPending) {
+          switchPending = false;
+          doSwitch();
+        }
         return;
+
       } catch(e) {
-        showError('Fetch error — retrying');
+        // try next item
       }
     }
 
-    showError('Could not load a video. Try again.');
-    nextBtn.disabled = false;
+    preloading = false;
   }
 
-  // ── Boot ──
+  function doSwitch() {
+    const current = vids[activeIdx];
+    const next    = vids[1 - activeIdx];
+
+    flash.classList.add('on');
+
+    setTimeout(() => {
+      current.classList.remove('active');
+      next.classList.add('active');
+      next.play().catch(() => {});
+      activeIdx = 1 - activeIdx;
+
+      // Let flash linger one frame then fade
+      requestAnimationFrame(() => {
+        flash.classList.remove('on');
+      });
+
+      preloadDone = false;
+      preloading  = false;
+      preloadNext();
+    }, 260);
+  }
+
+  function onTap() {
+    if (booting) return;
+    if (switchPending) return; // one queued tap is enough
+
+    if (preloadDone) {
+      doSwitch();
+    } else {
+      switchPending = true;
+    }
+  }
+
+  document.addEventListener('click', onTap);
+  document.addEventListener('touchstart', e => { e.preventDefault(); onTap(); }, { passive: false });
+  document.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); onTap(); } });
+
+  vids.forEach(v => v.addEventListener('ended', () => {
+    if (switchPending) return;
+    if (preloadDone) { doSwitch(); } else { switchPending = true; }
+  }));
+
   async function boot() {
-    try {
-      await fetchItems();
-      // small delay so progress bar looks intentional
-      await new Promise(r => setTimeout(r, 300));
-      loader.classList.add('hidden');
-      await loadNext();
-    } catch(e) {
-      document.querySelector('#loader-sub').textContent = 'Error: ' + e.message;
+    await fetchItems();
+
+    let loaded = false;
+    while (!loaded) {
+      const item = pickItem();
+      try {
+        const url = await getVideoUrl(item.identifier);
+        if (!url) continue;
+        vids[0].src = url;
+        vids[0].load();
+        await new Promise((resolve, reject) => {
+          vids[0].addEventListener('canplay', resolve, { once: true });
+          vids[0].addEventListener('error',   reject,  { once: true });
+        });
+        vids[0].play().catch(() => {});
+        loaded = true;
+      } catch(e) { /* retry */ }
     }
+
+    booting = false;
+    preloadNext();
   }
-
-  nextBtn.addEventListener('click', loadNext);
-
-  // also skip on video end
-  player.addEventListener('ended', loadNext);
-
-  // space bar = next
-  document.addEventListener('keydown', e => {
-    if (e.code === 'Space' && !nextBtn.disabled) {
-      e.preventDefault();
-      loadNext();
-    }
-  });
 
   boot();
 </script>
