@@ -39,6 +39,7 @@
         let currentModule = null;
         let currentMode   = null;
         let isTransitioning = false;
+        let lastSwitchVideo = null;
 
         function loadModule(module, config) {
             const isSameModule = currentModule === module;
@@ -97,6 +98,12 @@
                 } else {
                     loadModule(Demo, cfg);
                 }
+
+                const sw = demo.switchVideo ?? null;
+                if (lastSwitchVideo !== null && sw !== lastSwitchVideo && currentMode === 'demo') {
+                    Demo.nextVideo();
+                }
+                lastSwitchVideo = sw;
             } else {
                 loadModule(Albums);
             }
