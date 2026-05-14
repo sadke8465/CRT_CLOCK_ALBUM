@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>TV Display</title>
+    <link rel="stylesheet" href="fonts.css">
     <style>
         body {
             margin: 0;
@@ -20,49 +21,6 @@
     </style>
 
     <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
-
-    <style>
-        /* SF Pro Display */
-        @font-face { font-family:'SF Pro Display'; font-weight:100; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Ultralight.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:200; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Thin.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:300; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Light.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:400; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Regular.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:500; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Medium.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:600; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Semibold.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:700; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Bold.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:800; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Heavy.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Display'; font-weight:900; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Display-Black.otf') format('opentype'); }
-
-        /* SF Pro Text */
-        @font-face { font-family:'SF Pro Text'; font-weight:100; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Ultralight.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:200; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Thin.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:300; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Light.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:400; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Regular.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:500; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Medium.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:600; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Semibold.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:700; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Bold.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:800; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Heavy.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Text'; font-weight:900; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Text-Black.otf') format('opentype'); }
-
-        /* SF Pro Rounded */
-        @font-face { font-family:'SF Pro Rounded'; font-weight:100; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Ultralight.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:200; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Thin.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:300; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Light.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:400; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Regular.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:500; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Medium.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:600; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Semibold.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:700; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Bold.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:800; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Heavy.otf') format('opentype'); }
-        @font-face { font-family:'SF Pro Rounded'; font-weight:900; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Pro-Rounded-Black.otf') format('opentype'); }
-
-        /* SF Mono */
-        @font-face { font-family:'SF Mono'; font-weight:300; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Mono-Light.otf') format('opentype'); }
-        @font-face { font-family:'SF Mono'; font-weight:400; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Mono-Regular.otf') format('opentype'); }
-        @font-face { font-family:'SF Mono'; font-weight:500; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Mono-Medium.otf') format('opentype'); }
-        @font-face { font-family:'SF Mono'; font-weight:600; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Mono-Semibold.otf') format('opentype'); }
-        @font-face { font-family:'SF Mono'; font-weight:700; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Mono-Bold.otf') format('opentype'); }
-        @font-face { font-family:'SF Mono'; font-weight:800; font-display:swap; src:url('https://cdn.jsdelivr.net/gh/chris-short/apple-san-francisco-pro-fonts@main/SF-Mono-Heavy.otf') format('opentype'); }
-    </style>
 </head>
 <body>
     <div id="stage"></div>
