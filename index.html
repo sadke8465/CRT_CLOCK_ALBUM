@@ -25,8 +25,9 @@
     <div id="stage"></div>
 
     <script type="module">
-        import * as Albums from './albums.js';
-        import * as Demo   from './demo.js';
+        import * as Albums  from './albums.js';
+        import * as Demo    from './demo.js';
+        import * as Marquee from './marquee.js';
 
         import { initializeApp }                     from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
         import { getDatabase, ref, onValue }         from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
@@ -86,17 +87,32 @@
         onValue(ref(db, 'settings'), snap => {
             const s    = snap.val() || {};
             const mode = s.mode || 'albums';
-            const demo = s.demo || {};
-            const cfg  = {
+
+            // ── Demo config ───────────────────────────────────────
+            const demo    = s.demo || {};
+            const demoCfg = {
                 collection:        demo.collection        || 'demolitionkitchenvideo',
-                horizontalStretch: demo.horizontalStretch ?? 1.0
+                horizontalStretch: demo.horizontalStretch ?? 1.0,
             };
 
+            // ── Marquee config ────────────────────────────────────
+            const mq    = s.marquee || {};
+            const mqCfg = {
+                message:   mq.message   ?? 'Hello',
+                direction: mq.direction ?? 'left',
+                textSize:  mq.textSize  ?? 80,
+                gap:       mq.gap       ?? 200,
+                speed:     mq.speed     ?? 100,
+                textColor: mq.textColor ?? '#ffffff',
+                bgColor:   mq.bgColor   ?? '#000000',
+            };
+
+            // ── Dispatch ──────────────────────────────────────────
             if (mode === 'demo') {
                 if (currentMode === 'demo') {
-                    Demo.updateConfig(cfg);
+                    Demo.updateConfig(demoCfg);
                 } else {
-                    loadModule(Demo, cfg);
+                    loadModule(Demo, demoCfg);
                 }
 
                 const sw = demo.switchVideo ?? null;
@@ -104,6 +120,14 @@
                     Demo.nextVideo();
                 }
                 lastSwitchVideo = sw;
+
+            } else if (mode === 'marquee') {
+                if (currentMode === 'marquee') {
+                    Marquee.updateConfig(mqCfg);
+                } else {
+                    loadModule(Marquee, mqCfg);
+                }
+
             } else {
                 loadModule(Albums);
             }

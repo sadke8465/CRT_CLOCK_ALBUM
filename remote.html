@@ -45,15 +45,13 @@
   .seg-pill {
     position: absolute;
     inset: 3px auto 3px 3px;
-    width: calc(50% - 3px);
+    width: calc(33.333% - 4px);
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.13), 0 0 0 0.5px rgba(0,0,0,0.05);
     transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
     pointer-events: none;
   }
-
-  .seg-pill.right { transform: translateX(calc(100% + 6px)); }
 
   .seg-btn {
     flex: 1;
@@ -241,6 +239,79 @@
 
   .status-text.err { color: #ff3b30; }
 
+  /* ── Direction buttons ── */
+  .dir-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  .dir-btn {
+    flex: 1;
+    padding: 9px 0;
+    border: 1.5px solid rgba(0,0,0,0.10);
+    background: transparent;
+    font-family: inherit;
+    font-size: 1.1rem;
+    color: #8e8e93;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .dir-btn.active {
+    background: #1d1d1f;
+    color: #fff;
+    border-color: #1d1d1f;
+  }
+
+  .dir-btn:active { opacity: 0.6; }
+
+  /* ── Color pickers ── */
+  .color-row {
+    display: flex;
+    gap: 12px;
+  }
+
+  .color-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    flex: 1;
+  }
+
+  .color-item label {
+    font-size: 0.68rem;
+    color: #aeaeb2;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 38px;
+    border: none;
+    border-radius: 9px;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+  }
+
+  input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+    border-radius: 9px;
+  }
+
+  input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 9px;
+  }
+
   /* ── Animations ── */
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(12px); }
@@ -254,8 +325,9 @@
 
 <div class="segment">
   <div class="seg-pill" id="seg-pill"></div>
-  <button class="seg-btn active" id="btn-albums" onclick="setMode('albums')">Albums</button>
-  <button class="seg-btn"        id="btn-demo"   onclick="setMode('demo')">Demo</button>
+  <button class="seg-btn active" id="btn-albums"  onclick="setMode('albums')">Albums</button>
+  <button class="seg-btn"        id="btn-demo"    onclick="setMode('demo')">Demo</button>
+  <button class="seg-btn"        id="btn-marquee" onclick="setMode('marquee')">Marquee</button>
 </div>
 
 <div class="card" id="demo-card">
@@ -289,6 +361,96 @@
   </div>
 </div>
 
+<div class="card dimmed" id="marquee-card">
+
+  <div class="row">
+    <div class="row-label">Message</div>
+    <div class="input-row">
+      <input class="text-input" type="text" id="mq-message" dir="auto"
+             placeholder="Type text, emoji, עברית…" />
+      <button class="apply-btn" onclick="applyMarquee()">Apply</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Direction</div>
+    <div class="dir-group">
+      <button class="dir-btn active" id="dir-left"  onclick="setDirection('left')">←</button>
+      <button class="dir-btn"        id="dir-right" onclick="setDirection('right')">→</button>
+      <button class="dir-btn"        id="dir-up"    onclick="setDirection('up')">↑</button>
+      <button class="dir-btn"        id="dir-down"  onclick="setDirection('down')">↓</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Text Size</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Size</span>
+        <span class="val" id="mq-size-label">80px</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">20</span>
+        <input type="range" id="mq-size" min="20" max="400" step="1" value="80"
+               oninput="onMqSizeInput(this.value)"
+               onchange="commitMarqueeParam('textSize', parseInt(this.value))" />
+        <span class="track-cap">400</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Gap</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Between copies</span>
+        <span class="val" id="mq-gap-label">200px</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">0</span>
+        <input type="range" id="mq-gap" min="0" max="500" step="1" value="200"
+               oninput="onMqGapInput(this.value)"
+               onchange="commitMarqueeParam('gap', parseInt(this.value))" />
+        <span class="track-cap">500</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Speed</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">px / second</span>
+        <span class="val" id="mq-speed-label">100</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">20</span>
+        <input type="range" id="mq-speed" min="20" max="500" step="1" value="100"
+               oninput="onMqSpeedInput(this.value)"
+               onchange="commitMarqueeParam('speed', parseInt(this.value))" />
+        <span class="track-cap">500</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Colors</div>
+    <div class="color-row">
+      <div class="color-item">
+        <label for="mq-text-color">Text</label>
+        <input type="color" id="mq-text-color" value="#ffffff"
+               onchange="commitMarqueeParam('textColor', this.value)" />
+      </div>
+      <div class="color-item">
+        <label for="mq-bg-color">Background</label>
+        <input type="color" id="mq-bg-color" value="#000000"
+               onchange="commitMarqueeParam('bgColor', this.value)" />
+      </div>
+    </div>
+  </div>
+
+</div>
+
 <div class="status-row">
   <div class="dot" id="dot"></div>
   <span class="status-text" id="status">Connecting…</span>
@@ -307,11 +469,28 @@
   const statusEl   = document.getElementById('status');
   const btnAlbums  = document.getElementById('btn-albums');
   const btnDemo    = document.getElementById('btn-demo');
+  const btnMarquee = document.getElementById('btn-marquee');
   const segPill    = document.getElementById('seg-pill');
   const demoCard   = document.getElementById('demo-card');
+  const marqueeCard = document.getElementById('marquee-card');
   const colInput   = document.getElementById('collection-input');
   const slider     = document.getElementById('stretch-slider');
   const stretchLbl = document.getElementById('stretch-label');
+  const mqMessage  = document.getElementById('mq-message');
+  const mqSize     = document.getElementById('mq-size');
+  const mqSizeLbl  = document.getElementById('mq-size-label');
+  const mqGap      = document.getElementById('mq-gap');
+  const mqGapLbl   = document.getElementById('mq-gap-label');
+  const mqSpeed    = document.getElementById('mq-speed');
+  const mqSpeedLbl = document.getElementById('mq-speed-label');
+  const mqTextColor = document.getElementById('mq-text-color');
+  const mqBgColor  = document.getElementById('mq-bg-color');
+  const dirBtns    = {
+    left:  document.getElementById('dir-left'),
+    right: document.getElementById('dir-right'),
+    up:    document.getElementById('dir-up'),
+    down:  document.getElementById('dir-down'),
+  };
 
   const connectTimeout = setTimeout(() => {
     if (!dot.classList.contains('ok')) {
@@ -326,11 +505,18 @@
     const s    = snap.val() || {};
     const mode = s.mode || 'albums';
 
-    btnAlbums.classList.toggle('active', mode === 'albums');
-    btnDemo.classList.toggle('active',   mode === 'demo');
-    segPill.className = 'seg-pill' + (mode === 'demo' ? ' right' : '');
-    demoCard.classList.toggle('dimmed', mode !== 'demo');
+    // ── Segment pill position (0 = albums, 1 = demo, 2 = marquee) ──
+    const pillIdx = mode === 'demo' ? 1 : mode === 'marquee' ? 2 : 0;
+    segPill.style.transform = `translateX(calc(${pillIdx} * (100% + 6px)))`;
 
+    btnAlbums.classList.toggle('active',  mode === 'albums');
+    btnDemo.classList.toggle('active',    mode === 'demo');
+    btnMarquee.classList.toggle('active', mode === 'marquee');
+
+    demoCard.classList.toggle('dimmed',    mode !== 'demo');
+    marqueeCard.classList.toggle('dimmed', mode !== 'marquee');
+
+    // ── Sync Demo controls ──
     const demo = s.demo || {};
     if (document.activeElement !== colInput)
       colInput.value = demo.collection || 'demolitionkitchenvideo';
@@ -339,6 +525,36 @@
       slider.value           = v;
       stretchLbl.textContent = Number(v).toFixed(2) + '×';
     }
+
+    // ── Sync Marquee controls ──
+    const mq = s.marquee || {};
+
+    if (document.activeElement !== mqMessage)
+      mqMessage.value = mq.message ?? 'Hello';
+
+    if (document.activeElement !== mqSize) {
+      const sz = mq.textSize ?? 80;
+      mqSize.value          = sz;
+      mqSizeLbl.textContent = sz + 'px';
+    }
+    if (document.activeElement !== mqGap) {
+      const g = mq.gap ?? 200;
+      mqGap.value          = g;
+      mqGapLbl.textContent = g + 'px';
+    }
+    if (document.activeElement !== mqSpeed) {
+      const sp = mq.speed ?? 100;
+      mqSpeed.value          = sp;
+      mqSpeedLbl.textContent = sp;
+    }
+
+    mqTextColor.value = mq.textColor ?? '#ffffff';
+    mqBgColor.value   = mq.bgColor   ?? '#000000';
+
+    const activeDir = mq.direction ?? 'left';
+    Object.entries(dirBtns).forEach(([key, btn]) => {
+      btn.classList.toggle('active', key === activeDir);
+    });
 
     dot.className        = 'dot ok';
     statusEl.textContent = 'Connected';
@@ -369,6 +585,22 @@
   window.switchVideo = () => {
     update(ref(db, 'settings/demo'), { switchVideo: Date.now() });
   };
+
+  window.applyMarquee = () => {
+    update(ref(db, 'settings/marquee'), { message: mqMessage.value });
+  };
+
+  window.setDirection = dir => {
+    update(ref(db, 'settings/marquee'), { direction: dir });
+  };
+
+  window.commitMarqueeParam = (key, val) => {
+    update(ref(db, 'settings/marquee'), { [key]: val });
+  };
+
+  window.onMqSizeInput  = val => { mqSizeLbl.textContent  = val + 'px'; };
+  window.onMqGapInput   = val => { mqGapLbl.textContent   = val + 'px'; };
+  window.onMqSpeedInput = val => { mqSpeedLbl.textContent = val; };
 </script>
 
 </body>
