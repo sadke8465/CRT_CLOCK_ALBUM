@@ -3,290 +3,361 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>TV Remote</title>
+<title>Remote</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    background: #0f0f0f;
-    color: #e0e0e0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f2f1ec;
+    color: #1d1d1f;
+    font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
     min-height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 32px 20px 48px;
-    gap: 32px;
+    padding: 52px 24px 64px;
+    gap: 24px;
   }
 
-  h1 {
-    font-size: 1.1rem;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #888;
-  }
-
-  /* ── Mode buttons ── */
-  .mode-row {
-    display: flex;
-    gap: 16px;
-    width: 100%;
-    max-width: 420px;
-  }
-
-  .mode-btn {
-    flex: 1;
-    padding: 22px 0;
-    border: 2px solid #2a2a2a;
-    border-radius: 16px;
-    background: #1a1a1a;
-    color: #666;
-    font-size: 1.1rem;
+  /* ── Header ── */
+  .eyebrow {
+    font-size: 0.68rem;
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #8e8e93;
+    animation: fadeUp 0.4s ease both;
+  }
+
+  /* ── Segmented control ── */
+  .segment {
+    width: 100%;
+    max-width: 340px;
+    background: rgba(0,0,0,0.07);
+    border-radius: 11px;
+    padding: 3px;
+    display: flex;
+    position: relative;
+    animation: fadeUp 0.4s ease both 0.04s;
+  }
+
+  .seg-pill {
+    position: absolute;
+    inset: 3px auto 3px 3px;
+    width: calc(50% - 3px);
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.13), 0 0 0 0.5px rgba(0,0,0,0.05);
+    transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
+    pointer-events: none;
+  }
+
+  .seg-pill.right { transform: translateX(calc(100% + 6px)); }
+
+  .seg-btn {
+    flex: 1;
+    padding: 9px 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: #8e8e93;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.1s;
+    border-radius: 8px;
+    position: relative;
+    transition: color 0.2s;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
   }
 
-  .mode-btn:active { transform: scale(0.97); }
+  .seg-btn.active { color: #1d1d1f; }
+  .seg-btn:active  { opacity: 0.6; }
 
-  .mode-btn.active-albums {
-    background: #1a3a2a;
-    border-color: #2ecc71;
-    color: #2ecc71;
-  }
-
-  .mode-btn.active-demo {
-    background: #2a1a3a;
-    border-color: #9b59b6;
-    color: #c39bd3;
-  }
-
-  /* ── Settings card ── */
+  /* ── Card ── */
   .card {
     width: 100%;
-    max-width: 420px;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
-    border-radius: 16px;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    transition: opacity 0.3s;
+    max-width: 340px;
+    background: #fff;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 3px 14px rgba(0,0,0,0.07);
+    animation: fadeUp 0.4s ease both 0.08s;
+    transition: opacity 0.28s ease, transform 0.28s ease;
   }
 
-  .card.dimmed { opacity: 0.35; pointer-events: none; }
+  .card.dimmed {
+    opacity: 0.28;
+    transform: scale(0.975);
+    pointer-events: none;
+  }
 
-  .card-title {
-    font-size: 0.75rem;
+  .row {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+
+  .row + .row {
+    border-top: 0.5px solid rgba(0,0,0,0.07);
+  }
+
+  .row-label {
+    font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #555;
+    color: #aeaeb2;
   }
 
-  /* ── Field ── */
-  .field { display: flex; flex-direction: column; gap: 8px; }
-
-  .field label {
-    font-size: 0.85rem;
-    color: #888;
+  /* ── Input row ── */
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
   }
 
-  .field input[type="text"] {
-    background: #111;
-    border: 1px solid #333;
-    border-radius: 10px;
-    color: #e0e0e0;
-    font-size: 0.95rem;
-    padding: 12px 14px;
+  .text-input {
+    flex: 1;
+    background: #f2f1ec;
+    border: none;
+    border-radius: 9px;
+    color: #1d1d1f;
+    font-family: inherit;
+    font-size: 0.88rem;
+    padding: 10px 12px;
     outline: none;
-    transition: border-color 0.2s;
-    width: 100%;
+    transition: background 0.18s;
+    min-width: 0;
   }
 
-  .field input[type="text"]:focus { border-color: #555; }
+  .text-input:focus       { background: #e8e7e1; }
+  .text-input::placeholder { color: #c7c7cc; }
 
   .apply-btn {
-    align-self: flex-end;
-    padding: 8px 20px;
-    background: #222;
-    border: 1px solid #444;
-    border-radius: 8px;
-    color: #aaa;
-    font-size: 0.85rem;
+    padding: 10px 15px;
+    background: #1d1d1f;
+    border: none;
+    border-radius: 9px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: opacity 0.15s, transform 0.12s;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
-  .apply-btn:active { background: #333; color: #e0e0e0; }
+
+  .apply-btn:active { opacity: 0.7; transform: scale(0.95); }
 
   /* ── Slider ── */
-  .slider-row {
+  .slider-group { display: flex; flex-direction: column; gap: 10px; }
+
+  .slider-meta {
     display: flex;
-    align-items: center;
-    gap: 14px;
+    justify-content: space-between;
+    align-items: baseline;
   }
 
-  .slider-row input[type="range"] {
+  .slider-meta .lbl { font-size: 0.88rem; color: #3a3a3c; }
+  .slider-meta .val {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #1d1d1f;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .slider-track {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .track-cap { font-size: 0.7rem; color: #c7c7cc; flex-shrink: 0; }
+
+  input[type="range"] {
     flex: 1;
     -webkit-appearance: none;
     appearance: none;
-    height: 4px;
+    height: 3px;
     border-radius: 2px;
-    background: #333;
+    background: #e5e5ea;
     outline: none;
     cursor: pointer;
   }
 
-  .slider-row input[type="range"]::-webkit-slider-thumb {
+  input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    appearance: none;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
-    background: #9b59b6;
+    background: #1d1d1f;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.22);
+    transition: transform 0.12s;
     cursor: pointer;
   }
 
-  .slider-row input[type="range"]::-moz-range-thumb {
-    width: 22px;
-    height: 22px;
+  input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.18); }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
-    background: #9b59b6;
-    cursor: pointer;
+    background: #1d1d1f;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.22);
     border: none;
+    cursor: pointer;
   }
 
-  .stretch-val {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #c39bd3;
-    min-width: 38px;
-    text-align: right;
+  /* ── Status ── */
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    animation: fadeUp 0.4s ease both 0.12s;
   }
 
-  /* ── Status dot ── */
-  .status {
-    font-size: 0.78rem;
-    color: #444;
-    text-align: center;
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #c7c7cc;
+    flex-shrink: 0;
+    transition: background 0.4s;
   }
 
-  .status.connected { color: #2ecc71; }
-  .status.error     { color: #e74c3c; }
+  .dot.ok  { background: #34c759; }
+  .dot.err { background: #ff3b30; }
+
+  .status-text {
+    font-size: 0.73rem;
+    color: #aeaeb2;
+    transition: color 0.3s;
+  }
+
+  .status-text.err { color: #ff3b30; }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 </style>
 </head>
 <body>
 
-<h1>TV Remote</h1>
+<p class="eyebrow">Remote</p>
 
-<div class="mode-row">
-  <button class="mode-btn" id="btn-albums" onclick="setMode('albums')">Albums</button>
-  <button class="mode-btn" id="btn-demo"   onclick="setMode('demo')">Demo</button>
+<div class="segment">
+  <div class="seg-pill" id="seg-pill"></div>
+  <button class="seg-btn active" id="btn-albums" onclick="setMode('albums')">Albums</button>
+  <button class="seg-btn"        id="btn-demo"   onclick="setMode('demo')">Demo</button>
 </div>
 
 <div class="card" id="demo-card">
-  <div class="card-title">Demo Settings</div>
-
-  <div class="field">
-    <label for="collection-input">Archive.org Collection</label>
-    <input type="text" id="collection-input" placeholder="e.g. demolitionkitchenvideo" />
-    <button class="apply-btn" onclick="applyCollection()">Apply</button>
+  <div class="row">
+    <div class="row-label">Collection</div>
+    <div class="input-row">
+      <input class="text-input" type="text" id="collection-input" placeholder="archive.org identifier" />
+      <button class="apply-btn" onclick="applyCollection()">Apply</button>
+    </div>
   </div>
 
-  <div class="field">
-    <label>Horizontal Stretch — <span id="stretch-label">1.00×</span></label>
-    <div class="slider-row">
-      <span style="font-size:0.8rem;color:#555">0.5×</span>
-      <input type="range" id="stretch-slider" min="0.5" max="2.0" step="0.05" value="1.0" oninput="onStretchInput(this.value)" onchange="commitStretch(this.value)" />
-      <span style="font-size:0.8rem;color:#555">2×</span>
+  <div class="row">
+    <div class="row-label">Stretch</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Horizontal</span>
+        <span class="val" id="stretch-label">1.00×</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">0.5×</span>
+        <input type="range" id="stretch-slider" min="0.5" max="2.0" step="0.05" value="1.0"
+               oninput="onStretchInput(this.value)" onchange="commitStretch(this.value)" />
+        <span class="track-cap">2×</span>
+      </div>
     </div>
   </div>
 </div>
 
-<p class="status" id="status">Connecting…</p>
+<div class="status-row">
+  <div class="dot" id="dot"></div>
+  <span class="status-text" id="status">Connecting…</span>
+</div>
 
 <script type="module">
-  import { initializeApp }             from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
-  import { getDatabase, ref, onValue, update } from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
-  import { firebaseConfig }            from './firebase-config.js';
+  import { initializeApp }                      from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
+  import { getDatabase, ref, onValue, update }  from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
+  import { firebaseConfig }                     from './firebase-config.js';
 
   const app = initializeApp(firebaseConfig);
   const db  = getDatabase(app);
   const settingsRef = ref(db, 'settings');
 
+  const dot        = document.getElementById('dot');
   const statusEl   = document.getElementById('status');
   const btnAlbums  = document.getElementById('btn-albums');
   const btnDemo    = document.getElementById('btn-demo');
+  const segPill    = document.getElementById('seg-pill');
   const demoCard   = document.getElementById('demo-card');
   const colInput   = document.getElementById('collection-input');
   const slider     = document.getElementById('stretch-slider');
   const stretchLbl = document.getElementById('stretch-label');
 
-  let currentMode       = null;
-  let stretchDebounce   = null;
-
-  // Show a useful error if Firebase doesn't respond within 10 s
   const connectTimeout = setTimeout(() => {
-    if (statusEl.className !== 'status connected') {
-      statusEl.textContent = 'Cannot reach Firebase — check database rules or network';
-      statusEl.className   = 'status error';
+    if (!dot.classList.contains('ok')) {
+      statusEl.textContent = 'Cannot reach Firebase';
+      statusEl.className   = 'status-text err';
+      dot.className        = 'dot err';
     }
   }, 10000);
 
-  // ── Live listener ──────────────────────────────────────────
   onValue(settingsRef, snap => {
     clearTimeout(connectTimeout);
+    const s    = snap.val() || {};
+    const mode = s.mode || 'albums';
 
-    const s = snap.val() || {};
-    currentMode = s.mode || 'albums';
+    btnAlbums.classList.toggle('active', mode === 'albums');
+    btnDemo.classList.toggle('active',   mode === 'demo');
+    segPill.className = 'seg-pill' + (mode === 'demo' ? ' right' : '');
+    demoCard.classList.toggle('dimmed', mode !== 'demo');
 
-    // Mode buttons
-    btnAlbums.className = 'mode-btn' + (currentMode === 'albums' ? ' active-albums' : '');
-    btnDemo.className   = 'mode-btn' + (currentMode === 'demo'   ? ' active-demo'   : '');
-    demoCard.classList.toggle('dimmed', currentMode !== 'demo');
-
-    // Demo settings (only update UI if not currently focused)
     const demo = s.demo || {};
-    if (document.activeElement !== colInput) {
+    if (document.activeElement !== colInput)
       colInput.value = demo.collection || 'demolitionkitchenvideo';
-    }
     if (document.activeElement !== slider) {
       const v = demo.horizontalStretch ?? 1.0;
-      slider.value    = v;
+      slider.value           = v;
       stretchLbl.textContent = Number(v).toFixed(2) + '×';
     }
 
+    dot.className        = 'dot ok';
     statusEl.textContent = 'Connected';
-    statusEl.className   = 'status connected';
+    statusEl.className   = 'status-text';
   }, err => {
     clearTimeout(connectTimeout);
-    statusEl.textContent = 'Error: ' + err.message;
-    statusEl.className   = 'status error';
+    statusEl.textContent = err.message;
+    statusEl.className   = 'status-text err';
+    dot.className        = 'dot err';
   });
 
-  // ── Mode switch ───────────────────────────────────────────
-  window.setMode = function(mode) {
-    update(settingsRef, { mode });
-  };
+  window.setMode = mode => update(settingsRef, { mode });
 
-  // ── Collection apply ──────────────────────────────────────
-  window.applyCollection = function() {
+  window.applyCollection = () => {
     const val = colInput.value.trim();
     if (!val) return;
     update(ref(db, 'settings/demo'), { collection: val });
   };
 
-  // ── Stretch slider ────────────────────────────────────────
-  window.onStretchInput = function(val) {
+  window.onStretchInput = val => {
     stretchLbl.textContent = Number(val).toFixed(2) + '×';
   };
 
-  window.commitStretch = function(val) {
+  window.commitStretch = val => {
     update(ref(db, 'settings/demo'), { horizontalStretch: parseFloat(val) });
   };
 </script>
