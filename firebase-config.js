@@ -3,7 +3,7 @@
 export const firebaseConfig = {
   apiKey:            "AIzaSyCuSTJNzZx330ZBVGVKROqhcxwnp5IyDZo",
   authDomain:        "crt-display.firebaseapp.com",
-  databaseURL:       "https://crt-display-default-rtdb.firebaseio.com",
+  databaseURL:       "https://crt-display-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId:         "crt-display",
   storageBucket:     "crt-display.firebasestorage.app",
   messagingSenderId: "690564830289",
