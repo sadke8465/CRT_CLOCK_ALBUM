@@ -230,8 +230,18 @@
   let currentMode       = null;
   let stretchDebounce   = null;
 
+  // Show a useful error if Firebase doesn't respond within 10 s
+  const connectTimeout = setTimeout(() => {
+    if (statusEl.className !== 'status connected') {
+      statusEl.textContent = 'Cannot reach Firebase — check database rules or network';
+      statusEl.className   = 'status error';
+    }
+  }, 10000);
+
   // ── Live listener ──────────────────────────────────────────
   onValue(settingsRef, snap => {
+    clearTimeout(connectTimeout);
+
     const s = snap.val() || {};
     currentMode = s.mode || 'albums';
 
@@ -254,6 +264,7 @@
     statusEl.textContent = 'Connected';
     statusEl.className   = 'status connected';
   }, err => {
+    clearTimeout(connectTimeout);
     statusEl.textContent = 'Error: ' + err.message;
     statusEl.className   = 'status error';
   });

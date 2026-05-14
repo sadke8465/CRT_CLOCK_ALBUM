@@ -77,6 +77,10 @@
             }, 1000);
         }
 
+        // Start immediately in Albums so the screen is never black while Firebase loads
+        loadModule(Albums);
+        currentMode = 'albums';
+
         // ── Firebase listener ─────────────────────────────────────
         onValue(ref(db, 'settings'), snap => {
             const s    = snap.val() || {};
@@ -89,7 +93,6 @@
 
             if (mode === 'demo') {
                 if (currentMode === 'demo') {
-                    // Already in demo — just push updated config
                     Demo.updateConfig(cfg);
                 } else {
                     loadModule(Demo, cfg);
