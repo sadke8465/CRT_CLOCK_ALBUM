@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEMOLITION KITCHEN</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Space+Mono:ital@0;1&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+–red: #ff2200;
+–white: #f5f0e8;
+–black: #0a0a0a;
+}
+
+html, body {
+width: 100%; height: 100%;
+background: var(–black);
+overflow: hidden;
+font-family: ‘Space Mono’, monospace;
+cursor: none;
+}
+
+/* ── VIDEO ── */
+#video-wrap {
+position: fixed;
+inset: 0;
+z-index: 0;
+}
+
+#player {
+width: 100%;
+height: 100%;
+object-fit: cover;   /* fills, crops, never letterboxes */
+display: block;
+}
+
+/* ── SCANLINE OVERLAY ── */
+#scanlines {
+position: fixed;
+inset: 0;
+z-index: 1;
+pointer-events: none;
+background: repeating-linear-gradient(
+to bottom,
+transparent 0px,
+transparent 3px,
+rgba(0,0,0,0.08) 3px,
+rgba(0,0,0,0.08) 4px
+);
+}
+
+/* ── VIGNETTE ── */
+#vignette {
+position: fixed;
+inset: 0;
+z-index: 2;
+pointer-events: none;
+background: radial-gradient(ellipse at center,
+transparent 50%,
+rgba(0,0,0,0.75) 100%
+);
+}
+
+/* ── UI LAYER ── */
+#ui {
+position: fixed;
+inset: 0;
+z-index: 10;
+pointer-events: none;
+display: flex;
+flex-direction: column;
+justify-content: space-between;
+padding: 28px 32px;
+}
+
+/* TOP */
+#top {
+display: flex;
+align-items: flex-start;
+justify-content: space-between;
+}
+
+#wordmark {
+font-family: ‘Black Han Sans’, sans-serif;
+font-size: clamp(18px, 2.5vw, 28px);
+letter-spacing: 0.18em;
+color: var(–white);
+text-transform: uppercase;
+mix-blend-mode: normal;
+line-height: 1;
+}
+
+#wordmark span {
+color: var(–red);
+}
+
+#status {
+font-size: 10px;
+letter-spacing: 0.2em;
+color: rgba(245,240,232,0.4);
+text-transform: uppercase;
+text-align: right;
+line-height: 1.8;
+}
+
+#status .dot {
+display: inline-block;
+width: 6px; height: 6px;
+border-radius: 50%;
+background: var(–red);
+margin-right: 6px;
+vertical-align: middle;
+animation: blink 1.2s step-start infinite;
+}
+
+@keyframes blink {
+0%, 100% { opacity: 1; }
+50%       { opacity: 0; }
+}
+
+/* BOTTOM */
+#bottom {
+display: flex;
+align-items: flex-end;
+justify-content: space-between;
+gap: 20px;
+}
+
+#meta {
+max-width: 60%;
+}
+
+#title-display {
+font-family: ‘Black Han Sans’, sans-serif;
+font-size: clamp(14px, 2vw, 22px);
+letter-spacing: 0.06em;
+color: var(–white);
+text-transform: uppercase;
+line-height: 1.2;
+text-shadow: 0 2px 20px rgba(0,0,0,0.9);
+opacity: 0;
+transform: translateY(8px);
+transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+#title-display.visible {
+opacity: 1;
+transform: translateY(0);
+}
+
+#identifier-display {
+font-size: 9px;
+letter-spacing: 0.2em;
+color: rgba(245,240,232,0.35);
+margin-top: 6px;
+text-transform: uppercase;
+opacity: 0;
+transition: opacity 0.6s ease 0.2s;
+}
+
+#identifier-display.visible { opacity: 1; }
+
+/* NEXT BUTTON */
+#next-btn {
+pointer-events: all;
+cursor: none;
+background: none;
+border: 1.5px solid rgba(245,240,232,0.25);
+color: var(–white);
+font-family: ‘Space Mono’, monospace;
+font-size: 10px;
+letter-spacing: 0.22em;
+text-transform: uppercase;
+padding: 12px 20px;
+white-space: nowrap;
+position: relative;
+overflow: hidden;
+transition: border-color 0.2s, color 0.2s;
+flex-shrink: 0;
+}
+
+#next-btn::before {
+content: ‘’;
+position: absolute;
+inset: 0;
+background: var(–red);
+transform: translateX(-101%);
+transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+z-index: -1;
+}
+
+#next-btn:hover {
+border-color: var(–red);
+}
+
+#next-btn:hover::before {
+transform: translateX(0);
+}
+
+#next-btn:active {
+transform: scale(0.97);
+}
+
+#next-btn:disabled {
+opacity: 0.3;
+pointer-events: none;
+}
+
+/* LOADING STATE */
+#loader {
+position: fixed;
+inset: 0;
+z-index: 50;
+background: var(–black);
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+gap: 24px;
+transition: opacity 0.5s ease;
+}
+
+#loader.hidden {
+opacity: 0;
+pointer-events: none;
+}
+
+#loader-title {
+font-family: ‘Black Han Sans’, sans-serif;
+font-size: clamp(28px, 6vw, 72px);
+letter-spacing: 0.1em;
+color: var(–white);
+text-transform: uppercase;
+}
+
+#loader-title span { color: var(–red); }
+
+#loader-sub {
+font-size: 10px;
+letter-spacing: 0.3em;
+color: rgba(245,240,232,0.35);
+text-transform: uppercase;
+}
+
+#progress-bar {
+width: 160px;
+height: 1px;
+background: rgba(245,240,232,0.1);
+position: relative;
+overflow: hidden;
+}
+
+#progress-fill {
+height: 100%;
+background: var(–red);
+width: 0%;
+transition: width 0.3s ease;
+}
+
+/* ERROR */
+#error-msg {
+position: fixed;
+bottom: 80px;
+left: 50%;
+transform: translateX(-50%);
+z-index: 60;
+font-size: 10px;
+letter-spacing: 0.15em;
+color: var(–red);
+text-transform: uppercase;
+opacity: 0;
+transition: opacity 0.3s;
+pointer-events: none;
+}
+
+#error-msg.show { opacity: 1; }
+
+/* CUSTOM CURSOR */
+#cursor {
+position: fixed;
+width: 12px; height: 12px;
+border: 1.5px solid var(–white);
+border-radius: 50%;
+pointer-events: none;
+z-index: 9999;
+transform: translate(-50%, -50%);
+transition: transform 0.08s ease, width 0.15s, height 0.15s, border-color 0.15s;
+mix-blend-mode: difference;
+}
+
+#cursor.big {
+width: 40px; height: 40px;
+border-color: var(–red);
+}
+</style>
+
+</head>
+<body>
+
+<!-- Custom cursor -->
+
+<div id="cursor"></div>
+
+<!-- Loading screen -->
+
+<div id="loader">
+  <div id="loader-title">DEMOLITION<span>KITCHEN</span></div>
+  <div id="loader-sub">Pulling from the archive</div>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+</div>
+
+<!-- Video -->
+
+<div id="video-wrap">
+  <video id="player" autoplay muted playsinline></video>
+</div>
+
+<!-- Overlays -->
+
+<div id="scanlines"></div>
+<div id="vignette"></div>
+
+<!-- UI -->
+
+<div id="ui">
+  <div id="top">
+    <div id="wordmark">Demolition<span>Kitchen</span></div>
+    <div id="status">
+      <div><span class="dot"></span>Live Archive</div>
+      <div id="count-display">— / —</div>
+    </div>
+  </div>
+  <div id="bottom">
+    <div id="meta">
+      <div id="title-display"></div>
+      <div id="identifier-display"></div>
+    </div>
+    <button id="next-btn" disabled>Next →</button>
+  </div>
+</div>
+
+<div id="error-msg" id="error-msg"></div>
+
+<script>
+  // ── Cursor ──
+  const cursor = document.getElementById('cursor');
+  const nextBtn = document.getElementById('next-btn');
+
+  document.addEventListener('mousemove', e => {
+    cursor.style.left = e.clientX + 'px';
+    cursor.style.top = e.clientY + 'px';
+  });
+
+  nextBtn.addEventListener('mouseenter', () => cursor.classList.add('big'));
+  nextBtn.addEventListener('mouseleave', () => cursor.classList.remove('big'));
+
+  // ── State ──
+  const SEARCH_URL =
+    'https://archive.org/advancedsearch.php' +
+    '?q=collection%3Ademolitionkitchenvideo+AND+mediatype%3Amovies' +
+    '&fl[]=identifier,title,mediatype' +
+    '&rows=500&page=1&output=json';
+
+  const METADATA_BASE = 'https://archive.org/metadata/';
+  const DOWNLOAD_BASE = 'https://archive.org/download/';
+  const VIDEO_FORMATS = ['h.264', 'mpeg4', 'mp4', 'ogg video', 'webm', 'mov', 'avi', 'mkv'];
+  const VIDEO_EXTS    = ['.mp4', '.webm', '.ogv', '.mov'];
+
+  let items = [];
+  let usedIndices = new Set();
+  const player = document.getElementById('player');
+  const loader = document.getElementById('loader');
+  const fill = document.getElementById('progress-fill');
+  const titleEl = document.getElementById('title-display');
+  const identEl = document.getElementById('identifier-display');
+  const countEl = document.getElementById('count-display');
+  const errorEl = document.getElementById('error-msg');
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.add('show');
+    setTimeout(() => errorEl.classList.remove('show'), 3000);
+  }
+
+  function setProgress(pct) {
+    fill.style.width = pct + '%';
+  }
+
+  // ── Fetch all items ──
+  async function fetchItems() {
+    setProgress(20);
+    const res = await fetch(SEARCH_URL);
+    setProgress(60);
+    const json = await res.json();
+    items = (json.response?.docs || []).filter(d => d.mediatype === 'movies');
+    setProgress(90);
+    if (items.length === 0) throw new Error('No video items found');
+    countEl.textContent = `0 / ${items.length}`;
+    setProgress(100);
+  }
+
+  // ── Pick a random unused item ──
+  function pickItem() {
+    if (usedIndices.size >= items.length) usedIndices.clear(); // cycle
+    let idx;
+    do { idx = Math.floor(Math.random() * items.length); }
+    while (usedIndices.has(idx));
+    usedIndices.add(idx);
+    countEl.textContent = `${usedIndices.size} / ${items.length}`;
+    return items[idx];
+  }
+
+  // ── Fetch metadata to find a real video file ──
+  async function getVideoUrl(identifier) {
+    const res = await fetch(METADATA_BASE + identifier);
+    const json = await res.json();
+    const files = json.files || [];
+
+    // Prefer mp4 h.264, then other video formats
+    const ranked = files
+      .filter(f => {
+        const fmt = (f.format || '').toLowerCase();
+        const name = (f.name || '').toLowerCase();
+        return (
+          VIDEO_FORMATS.some(v => fmt.includes(v)) ||
+          VIDEO_EXTS.some(e => name.endsWith(e))
+        );
+      })
+      .sort((a, b) => {
+        // prefer h.264 mp4
+        const score = f => {
+          const fmt = (f.format || '').toLowerCase();
+          if (fmt.includes('h.264')) return 0;
+          if (fmt.includes('mp4') || fmt.includes('mpeg4')) return 1;
+          if (fmt.includes('webm')) return 2;
+          return 3;
+        };
+        return score(a) - score(b);
+      });
+
+    if (ranked.length === 0) return null;
+    return DOWNLOAD_BASE + identifier + '/' + encodeURIComponent(ranked[0].name);
+  }
+
+  // ── Load next video ──
+  async function loadNext() {
+    nextBtn.disabled = true;
+
+    // hide meta
+    titleEl.classList.remove('visible');
+    identEl.classList.remove('visible');
+
+    let attempts = 0;
+    while (attempts < 5) {
+      const item = pickItem();
+      attempts++;
+
+      try {
+        const url = await getVideoUrl(item.identifier);
+        if (!url) { showError('No video file — skipping'); continue; }
+
+        // set source
+        player.src = url;
+        player.load();
+        player.play().catch(() => {}); // autoplay may need user gesture for audio
+
+        // show meta
+        titleEl.textContent = item.title || item.identifier;
+        identEl.textContent = item.identifier;
+        titleEl.classList.add('visible');
+        identEl.classList.add('visible');
+
+        nextBtn.disabled = false;
+        return;
+      } catch(e) {
+        showError('Fetch error — retrying');
+      }
+    }
+
+    showError('Could not load a video. Try again.');
+    nextBtn.disabled = false;
+  }
+
+  // ── Boot ──
+  async function boot() {
+    try {
+      await fetchItems();
+      // small delay so progress bar looks intentional
+      await new Promise(r => setTimeout(r, 300));
+      loader.classList.add('hidden');
+      await loadNext();
+    } catch(e) {
+      document.querySelector('#loader-sub').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  nextBtn.addEventListener('click', loadNext);
+
+  // also skip on video end
+  player.addEventListener('ended', loadNext);
+
+  // space bar = next
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !nextBtn.disabled) {
+      e.preventDefault();
+      loadNext();
+    }
+  });
+
+  boot();
+</script>
+
+</body>
+</html>
