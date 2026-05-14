@@ -288,6 +288,10 @@ export function cleanup() {
     clickHandler = null; touchHandler = null; keyHandler = null; endedHandlers = [];
 }
 
+export function nextVideo() {
+    onTap();
+}
+
 export async function updateConfig(newCfg) {
     const prevCollection = config.collection;
     const prevStretch    = config.horizontalStretch;
