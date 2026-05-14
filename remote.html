@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TV Remote</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0f0f0f;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 20px 48px;
+    gap: 32px;
+  }
+
+  h1 {
+    font-size: 1.1rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #888;
+  }
+
+  /* ── Mode buttons ── */
+  .mode-row {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .mode-btn {
+    flex: 1;
+    padding: 22px 0;
+    border: 2px solid #2a2a2a;
+    border-radius: 16px;
+    background: #1a1a1a;
+    color: #666;
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .mode-btn:active { transform: scale(0.97); }
+
+  .mode-btn.active-albums {
+    background: #1a3a2a;
+    border-color: #2ecc71;
+    color: #2ecc71;
+  }
+
+  .mode-btn.active-demo {
+    background: #2a1a3a;
+    border-color: #9b59b6;
+    color: #c39bd3;
+  }
+
+  /* ── Settings card ── */
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    transition: opacity 0.3s;
+  }
+
+  .card.dimmed { opacity: 0.35; pointer-events: none; }
+
+  .card-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #555;
+  }
+
+  /* ── Field ── */
+  .field { display: flex; flex-direction: column; gap: 8px; }
+
+  .field label {
+    font-size: 0.85rem;
+    color: #888;
+  }
+
+  .field input[type="text"] {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 10px;
+    color: #e0e0e0;
+    font-size: 0.95rem;
+    padding: 12px 14px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+  }
+
+  .field input[type="text"]:focus { border-color: #555; }
+
+  .apply-btn {
+    align-self: flex-end;
+    padding: 8px 20px;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 8px;
+    color: #aaa;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .apply-btn:active { background: #333; color: #e0e0e0; }
+
+  /* ── Slider ── */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .slider-row input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: #333;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #9b59b6;
+    cursor: pointer;
+  }
+
+  .slider-row input[type="range"]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #9b59b6;
+    cursor: pointer;
+    border: none;
+  }
+
+  .stretch-val {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #c39bd3;
+    min-width: 38px;
+    text-align: right;
+  }
+
+  /* ── Status dot ── */
+  .status {
+    font-size: 0.78rem;
+    color: #444;
+    text-align: center;
+  }
+
+  .status.connected { color: #2ecc71; }
+  .status.error     { color: #e74c3c; }
+</style>
+</head>
+<body>
+
+<h1>TV Remote</h1>
+
+<div class="mode-row">
+  <button class="mode-btn" id="btn-albums" onclick="setMode('albums')">Albums</button>
+  <button class="mode-btn" id="btn-demo"   onclick="setMode('demo')">Demo</button>
+</div>
+
+<div class="card" id="demo-card">
+  <div class="card-title">Demo Settings</div>
+
+  <div class="field">
+    <label for="collection-input">Archive.org Collection</label>
+    <input type="text" id="collection-input" placeholder="e.g. demolitionkitchenvideo" />
+    <button class="apply-btn" onclick="applyCollection()">Apply</button>
+  </div>
+
+  <div class="field">
+    <label>Horizontal Stretch — <span id="stretch-label">1.00×</span></label>
+    <div class="slider-row">
+      <span style="font-size:0.8rem;color:#555">0.5×</span>
+      <input type="range" id="stretch-slider" min="0.5" max="2.0" step="0.05" value="1.0" oninput="onStretchInput(this.value)" onchange="commitStretch(this.value)" />
+      <span style="font-size:0.8rem;color:#555">2×</span>
+    </div>
+  </div>
+</div>
+
+<p class="status" id="status">Connecting…</p>
+
+<script type="module">
+  import { initializeApp }             from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
+  import { getDatabase, ref, onValue, update } from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
+  import { firebaseConfig }            from './firebase-config.js';
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  const settingsRef = ref(db, 'settings');
+
+  const statusEl   = document.getElementById('status');
+  const btnAlbums  = document.getElementById('btn-albums');
+  const btnDemo    = document.getElementById('btn-demo');
+  const demoCard   = document.getElementById('demo-card');
+  const colInput   = document.getElementById('collection-input');
+  const slider     = document.getElementById('stretch-slider');
+  const stretchLbl = document.getElementById('stretch-label');
+
+  let currentMode       = null;
+  let stretchDebounce   = null;
+
+  // ── Live listener ──────────────────────────────────────────
+  onValue(settingsRef, snap => {
+    const s = snap.val() || {};
+    currentMode = s.mode || 'albums';
+
+    // Mode buttons
+    btnAlbums.className = 'mode-btn' + (currentMode === 'albums' ? ' active-albums' : '');
+    btnDemo.className   = 'mode-btn' + (currentMode === 'demo'   ? ' active-demo'   : '');
+    demoCard.classList.toggle('dimmed', currentMode !== 'demo');
+
+    // Demo settings (only update UI if not currently focused)
+    const demo = s.demo || {};
+    if (document.activeElement !== colInput) {
+      colInput.value = demo.collection || 'demolitionkitchenvideo';
+    }
+    if (document.activeElement !== slider) {
+      const v = demo.horizontalStretch ?? 1.0;
+      slider.value    = v;
+      stretchLbl.textContent = Number(v).toFixed(2) + '×';
+    }
+
+    statusEl.textContent = 'Connected';
+    statusEl.className   = 'status connected';
+  }, err => {
+    statusEl.textContent = 'Error: ' + err.message;
+    statusEl.className   = 'status error';
+  });
+
+  // ── Mode switch ───────────────────────────────────────────
+  window.setMode = function(mode) {
+    update(settingsRef, { mode });
+  };
+
+  // ── Collection apply ──────────────────────────────────────
+  window.applyCollection = function() {
+    const val = colInput.value.trim();
+    if (!val) return;
+    update(ref(db, 'settings/demo'), { collection: val });
+  };
+
+  // ── Stretch slider ────────────────────────────────────────
+  window.onStretchInput = function(val) {
+    stretchLbl.textContent = Number(val).toFixed(2) + '×';
+  };
+
+  window.commitStretch = function(val) {
+    update(ref(db, 'settings/demo'), { horizontalStretch: parseFloat(val) });
+  };
+</script>
+
+</body>
+</html>

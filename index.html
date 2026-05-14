@@ -4,133 +4,104 @@
     <meta charset="UTF-8">
     <title>TV Display</title>
     <style>
-        /* Global styles */
-        body { 
-            margin: 0; 
-            background: #000; 
-            overflow: hidden; 
+        body {
+            margin: 0;
+            background: #000;
+            overflow: hidden;
         }
-        
-        #stage { 
-            width: 100vw; 
-            height: 100vh; 
-            
-            /* HARDWARE ACCELERATED FADE TRANSITION */
+
+        #stage {
+            width: 100vw;
+            height: 100vh;
             opacity: 1;
             transition: opacity 0.5s ease-in-out;
             will-change: opacity;
         }
     </style>
-    
-    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
 
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
 </head>
 <body>
     <div id="stage"></div>
 
     <script type="module">
         import * as Albums from './albums.js';
-        import * as Clock from './clock.js';
+        import * as Demo   from './demo.js';
 
-        // --- CONFIGURATION ---
-        const TOPIC = 'noams-tv-controller-882'; 
+        import { initializeApp }                     from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
+        import { getDatabase, ref, onValue }         from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
+        import { firebaseConfig }                    from './firebase-config.js';
+
+        const app = initializeApp(firebaseConfig);
+        const db  = getDatabase(app);
 
         const stage = document.getElementById('stage');
         let currentModule = null;
+        let currentMode   = null;
         let isTransitioning = false;
 
-        /**
-         * MODULE SWITCHER
-         */
-        function loadModule(module) {
-            // 1. Prevent spamming or switching to the same module
-            if (isTransitioning || currentModule === module) return;
+        function loadModule(module, config) {
+            const isSameModule = currentModule === module;
 
-            // 2. First Load (Instant)
-            if (!currentModule) {
-                initNewModule(module);
+            // Config-only update — no visual transition needed
+            if (isSameModule && typeof module.updateConfig === 'function') {
+                module.updateConfig(config);
                 return;
             }
 
-            // 3. Start Transition: Fade Out
+            if (isTransitioning || isSameModule) return;
+
+            // First load (instant)
+            if (!currentModule) {
+                stage.innerHTML = '';
+                module.init(stage, config);
+                currentModule = module;
+                return;
+            }
+
+            // Fade out → swap → fade in
             isTransitioning = true;
             stage.style.opacity = '0';
 
-            // 4. Wait for fade-out (1s), then swap
             setTimeout(() => {
-                // CLEANUP OLD
-                if (currentModule && currentModule.cleanup) {
-                    currentModule.cleanup();
-                }
+                if (currentModule && currentModule.cleanup) currentModule.cleanup();
                 stage.innerHTML = '';
 
-                // START NEW
-                initNewModule(module);
+                module.init(stage, config);
+                currentModule = module;
 
-                // Fade In
                 requestAnimationFrame(() => {
                     stage.style.opacity = '1';
-                    
-                    setTimeout(() => { 
-                        isTransitioning = false; 
-                    }, 1000);
+                    setTimeout(() => { isTransitioning = false; }, 1000);
                 });
-
-            }, 1000); 
+            }, 1000);
         }
 
-        function initNewModule(module) {
-            module.init(stage);
-            currentModule = module;
-        }
+        // ── Firebase listener ─────────────────────────────────────
+        onValue(ref(db, 'settings'), snap => {
+            const s    = snap.val() || {};
+            const mode = s.mode || 'albums';
+            const demo = s.demo || {};
+            const cfg  = {
+                collection:        demo.collection        || 'demolitionkitchenvideo',
+                horizontalStretch: demo.horizontalStretch ?? 1.0
+            };
 
-        // --- INITIALIZATION ---
-        loadModule(Albums);
-        console.log(`[TV] System started. Listening on: ${TOPIC}`);
-
-        // --- REMOTE CONTROL LISTENER ---
-        const socket = new WebSocket(`wss://ntfy.sh/${TOPIC}/ws`);
-
-        socket.addEventListener('message', (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.event !== 'message') return;
-
-                console.log(`[TV] Received command: ${data.message}`);
-                
-                if (data.message === 'CLOCK') {
-                    loadModule(Clock);
-                } else if (data.message === 'ARTWORK') {
-                    loadModule(Albums);
+            if (mode === 'demo') {
+                if (currentMode === 'demo') {
+                    // Already in demo — just push updated config
+                    Demo.updateConfig(cfg);
+                } else {
+                    loadModule(Demo, cfg);
                 }
-            } catch (error) {
-                console.error("[TV] Error processing command:", error);
-            }
-        });
-        
-        socket.addEventListener('error', (error) => {
-            console.error("[TV] Connection Error:", error);
-        });
-
-        // --- AUTO-SCHEDULER (NEW) ---
-        // Checks the time every 10 seconds to trigger automatic switches
-        setInterval(() => {
-            const now = new Date();
-            const hours = now.getHours();
-            const minutes = now.getMinutes();
-
-            // 6:30 AM -> Switch to Clock
-            if (hours === 6 && minutes === 30) {
-                // The loadModule function automatically ignores the request 
-                // if we are ALREADY on the clock, so this is safe.
-                loadModule(Clock);
-            } 
-            
-            // 10:00 AM -> Switch to Albums
-            else if (hours === 10 && minutes === 0) {
+            } else {
                 loadModule(Albums);
             }
-        }, 10000); // Check every 10s to ensure we don't miss the minute
+
+            currentMode = mode;
+        });
+
+        console.log('[TV] System started. Listening to Firebase.');
     </script>
 </body>
 </html>
