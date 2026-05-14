@@ -49,7 +49,7 @@ function build() {
     const horiz = isHoriz(direction);
 
     stageEl.style.cssText =
-        `position:relative;width:100%;height:100%;overflow:hidden;` +
+        `position:relative;width:100%;height:100vh;overflow:hidden;` +
         `background:${bgColor};`;
 
     const { w: textW, h: textH } = measureText(message, textSize);
