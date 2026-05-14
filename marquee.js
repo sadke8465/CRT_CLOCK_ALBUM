@@ -2,17 +2,19 @@
 // Contract: init(stage, cfg), cleanup(), updateConfig(cfg)
 
 const DEFAULTS = {
-    message:   'Hello',
-    direction: 'left',   // 'left' | 'right' | 'up' | 'down'
-    textSize:  80,        // px
-    gap:       200,       // px between repetitions
-    speed:     100,       // px / second
-    textColor: '#ffffff',
-    bgColor:   '#000000',
+    message:          'Hello',
+    direction:        'left',   // 'left' | 'right' | 'up' | 'down'
+    textSize:         80,        // px
+    gap:              200,       // px between repetitions
+    speed:            100,       // px / second
+    textColor:        '#ffffff',
+    bgColor:          '#000000',
+    horizontalStretch: 1.0,
+    fontFamily:       'SF Pro Display',
+    fontWeight:       400,
 };
 
-const FONT = "'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','Arial Hebrew',-apple-system,BlinkMacSystemFont,sans-serif";
-const MAX_COPIES = 200;
+const MAX_COPIES = 500;
 
 let stageEl   = null;
 let config    = { ...DEFAULTS };
@@ -22,13 +24,18 @@ let lastTs    = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function measureText(message, textSize) {
+function fontCSS(family, weight) {
+    return `font-family:'${family}','Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',` +
+           `-apple-system,BlinkMacSystemFont,sans-serif;font-weight:${weight};`;
+}
+
+function measureText(message, textSize, fontFamily, fontWeight) {
     const probe = document.createElement('span');
     probe.style.cssText =
         `position:fixed;visibility:hidden;pointer-events:none;top:0;left:0;` +
-        `white-space:nowrap;font-size:${textSize}px;font-family:${FONT};` +
+        `white-space:nowrap;font-size:${textSize}px;${fontCSS(fontFamily, fontWeight)}` +
         `unicode-bidi:plaintext;`;
-    probe.textContent = message || ' ';
+    probe.textContent = message || ' ';
     document.body.appendChild(probe);
     const w = probe.offsetWidth;
     const h = probe.offsetHeight;
@@ -45,14 +52,15 @@ function isHoriz(dir) {
 function build() {
     stageEl.innerHTML = '';
 
-    const { message, direction, textSize, textColor, bgColor, gap, speed } = config;
+    const { message, direction, textSize, textColor, bgColor, gap,
+            horizontalStretch, fontFamily, fontWeight } = config;
     const horiz = isHoriz(direction);
 
     stageEl.style.cssText =
         `position:relative;width:100%;height:100vh;overflow:hidden;` +
         `background:${bgColor};`;
 
-    const { w: textW, h: textH } = measureText(message, textSize);
+    const { w: textW, h: textH } = measureText(message, textSize, fontFamily, fontWeight);
     const textDim = horiz ? (textW || textSize) : (textH || textSize);
     const unit    = textDim + gap;
 
@@ -61,6 +69,13 @@ function build() {
         : (stageEl.offsetHeight || window.innerHeight);
 
     const copies = Math.min(Math.ceil(screenDim / unit) + 3, MAX_COPIES);
+
+    // Stretch wrapper: fills stage, applies horizontal scale from screen center
+    const stretchEl = document.createElement('div');
+    stretchEl.id = 'mq-stretch';
+    stretchEl.style.cssText =
+        `position:absolute;top:0;left:0;right:0;bottom:0;` +
+        `transform:scaleX(${horizontalStretch});transform-origin:center center;`;
 
     // Runner: the scrolling strip
     const runner = document.createElement('div');
@@ -81,10 +96,12 @@ function build() {
 
     for (let i = 0; i < copies; i++) {
         const span = document.createElement('span');
-        span.textContent = message || ' ';
+        span.textContent = message || ' ';
         span.style.cssText =
-            `font-size:${textSize}px;color:${textColor};font-family:${FONT};` +
-            `unicode-bidi:plaintext;-webkit-font-smoothing:antialiased;` +
+            `font-size:${textSize}px;color:${textColor};` +
+            fontCSS(fontFamily, fontWeight) +
+            `-webkit-font-smoothing:antialiased;` +
+            `unicode-bidi:plaintext;` +
             `flex-shrink:0;display:${horiz ? 'inline-block' : 'block'};` +
             (horiz
                 ? `margin-right:${gap}px;`
@@ -92,7 +109,8 @@ function build() {
         runner.appendChild(span);
     }
 
-    stageEl.appendChild(runner);
+    stretchEl.appendChild(runner);
+    stageEl.appendChild(stretchEl);
 
     // Right/Down start at unit so they scroll toward 0 first (content appears from correct edge)
     offset = (direction === 'right' || direction === 'down') ? unit : 0;
@@ -140,6 +158,14 @@ export function init(stage, cfg = {}) {
     config  = { ...DEFAULTS, ...cfg };
     build();
     rafHandle = requestAnimationFrame(tick);
+    // Rebuild after web fonts load for accurate text measurements
+    document.fonts.ready.then(() => {
+        if (stageEl) {
+            if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+            build();
+            rafHandle = requestAnimationFrame(tick);
+        }
+    });
 }
 
 export function cleanup() {

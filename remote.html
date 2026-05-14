@@ -268,6 +268,50 @@
 
   .dir-btn:active { opacity: 0.6; }
 
+  /* ── Font picker ── */
+  .font-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .font-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .font-sublabel {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #aeaeb2;
+  }
+
+  .select-input {
+    width: 100%;
+    background: #f2f1ec;
+    border: none;
+    border-radius: 9px;
+    color: #1d1d1f;
+    font-family: inherit;
+    font-size: 0.82rem;
+    padding: 9px 10px;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23aeaeb2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+    transition: background-color 0.18s;
+  }
+
+  .select-input:focus { background-color: #e8e7e1; }
+
   /* ── Color pickers ── */
   .color-row {
     display: flex;
@@ -383,6 +427,37 @@
   </div>
 
   <div class="row">
+    <div class="row-label">Font</div>
+    <div class="font-row">
+      <div class="font-col">
+        <span class="font-sublabel">Style</span>
+        <select class="select-input" id="mq-font-family"
+                onchange="commitMarqueeParam('fontFamily', this.value)">
+          <option value="SF Pro Display">SF Pro Display</option>
+          <option value="SF Pro Text">SF Pro Text</option>
+          <option value="SF Pro Rounded">SF Pro Rounded</option>
+          <option value="SF Mono">SF Mono</option>
+        </select>
+      </div>
+      <div class="font-col">
+        <span class="font-sublabel">Weight</span>
+        <select class="select-input" id="mq-font-weight"
+                onchange="commitMarqueeParam('fontWeight', parseInt(this.value))">
+          <option value="100">Ultralight</option>
+          <option value="200">Thin</option>
+          <option value="300">Light</option>
+          <option value="400" selected>Regular</option>
+          <option value="500">Medium</option>
+          <option value="600">Semibold</option>
+          <option value="700">Bold</option>
+          <option value="800">Heavy</option>
+          <option value="900">Black</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
     <div class="row-label">Text Size</div>
     <div class="slider-group">
       <div class="slider-meta">
@@ -391,10 +466,27 @@
       </div>
       <div class="slider-track">
         <span class="track-cap">20</span>
-        <input type="range" id="mq-size" min="20" max="400" step="1" value="80"
+        <input type="range" id="mq-size" min="20" max="2000" step="1" value="80"
                oninput="onMqSizeInput(this.value)"
                onchange="commitMarqueeParam('textSize', parseInt(this.value))" />
-        <span class="track-cap">400</span>
+        <span class="track-cap">2000</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Stretch</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Horizontal</span>
+        <span class="val" id="mq-stretch-label">1.00×</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">0.5×</span>
+        <input type="range" id="mq-stretch" min="0.5" max="3.0" step="0.05" value="1.0"
+               oninput="onMqStretchInput(this.value)"
+               onchange="commitMarqueeParam('horizontalStretch', parseFloat(this.value))" />
+        <span class="track-cap">3×</span>
       </div>
     </div>
   </div>
@@ -425,10 +517,10 @@
       </div>
       <div class="slider-track">
         <span class="track-cap">20</span>
-        <input type="range" id="mq-speed" min="20" max="500" step="1" value="100"
+        <input type="range" id="mq-speed" min="20" max="5000" step="10" value="100"
                oninput="onMqSpeedInput(this.value)"
                onchange="commitMarqueeParam('speed', parseInt(this.value))" />
-        <span class="track-cap">500</span>
+        <span class="track-cap">5000</span>
       </div>
     </div>
   </div>
@@ -483,8 +575,12 @@
   const mqGapLbl   = document.getElementById('mq-gap-label');
   const mqSpeed    = document.getElementById('mq-speed');
   const mqSpeedLbl = document.getElementById('mq-speed-label');
-  const mqTextColor = document.getElementById('mq-text-color');
-  const mqBgColor  = document.getElementById('mq-bg-color');
+  const mqTextColor  = document.getElementById('mq-text-color');
+  const mqBgColor    = document.getElementById('mq-bg-color');
+  const mqFontFamily = document.getElementById('mq-font-family');
+  const mqFontWeight = document.getElementById('mq-font-weight');
+  const mqStretch    = document.getElementById('mq-stretch');
+  const mqStretchLbl = document.getElementById('mq-stretch-label');
   const dirBtns    = {
     left:  document.getElementById('dir-left'),
     right: document.getElementById('dir-right'),
@@ -551,6 +647,15 @@
     mqTextColor.value = mq.textColor ?? '#ffffff';
     mqBgColor.value   = mq.bgColor   ?? '#000000';
 
+    mqFontFamily.value = mq.fontFamily ?? 'SF Pro Display';
+    mqFontWeight.value = String(mq.fontWeight ?? 400);
+
+    if (document.activeElement !== mqStretch) {
+      const sx = mq.horizontalStretch ?? 1.0;
+      mqStretch.value          = sx;
+      mqStretchLbl.textContent = Number(sx).toFixed(2) + '×';
+    }
+
     const activeDir = mq.direction ?? 'left';
     Object.entries(dirBtns).forEach(([key, btn]) => {
       btn.classList.toggle('active', key === activeDir);
@@ -598,9 +703,10 @@
     update(ref(db, 'settings/marquee'), { [key]: val });
   };
 
-  window.onMqSizeInput  = val => { mqSizeLbl.textContent  = val + 'px'; };
-  window.onMqGapInput   = val => { mqGapLbl.textContent   = val + 'px'; };
-  window.onMqSpeedInput = val => { mqSpeedLbl.textContent = val; };
+  window.onMqSizeInput    = val => { mqSizeLbl.textContent    = val + 'px'; };
+  window.onMqGapInput     = val => { mqGapLbl.textContent     = val + 'px'; };
+  window.onMqSpeedInput   = val => { mqSpeedLbl.textContent   = val; };
+  window.onMqStretchInput = val => { mqStretchLbl.textContent = Number(val).toFixed(2) + '×'; };
 </script>
 
 </body>
