@@ -53,7 +53,11 @@ transition: opacity 0.25s ease;
 
 <div id="flash"></div>
 
-<script>
+<script type="module">
+  import { initializeApp }                    from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
+  import { getDatabase, ref, onValue }        from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
+  import { firebaseConfig }                   from './firebase-config.js';
+
   const SEARCH_URL =
     'https://archive.org/advancedsearch.php' +
     '?q=collection%3Ademolitionkitchenvideo+AND+mediatype%3Amovies' +
@@ -237,6 +241,16 @@ transition: opacity 0.25s ease;
   }
 
   boot();
+
+  // Firebase remote "Next Video" listener
+  const fbApp = initializeApp(firebaseConfig);
+  const fbDb  = getDatabase(fbApp);
+  let lastSwitchVideo = undefined;
+  onValue(ref(fbDb, 'settings/demo/switchVideo'), snap => {
+    const val = snap.val();
+    if (lastSwitchVideo === undefined) { lastSwitchVideo = val; return; }
+    if (val !== lastSwitchVideo) { lastSwitchVideo = val; onTap(); }
+  });
 </script>
 
 </body>

@@ -268,6 +268,11 @@
   </div>
 
   <div class="row">
+    <div class="row-label">Playback</div>
+    <button class="apply-btn" id="next-btn" style="width:100%;padding:13px 0;font-size:0.9rem;" onclick="switchVideo()">Next Video</button>
+  </div>
+
+  <div class="row">
     <div class="row-label">Stretch</div>
     <div class="slider-group">
       <div class="slider-meta">
@@ -359,6 +364,10 @@
 
   window.commitStretch = val => {
     update(ref(db, 'settings/demo'), { horizontalStretch: parseFloat(val) });
+  };
+
+  window.switchVideo = () => {
+    update(ref(db, 'settings/demo'), { switchVideo: Date.now() });
   };
 </script>
 
