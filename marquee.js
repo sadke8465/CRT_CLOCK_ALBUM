@@ -25,7 +25,7 @@ let lastTs    = null;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fontCSS(family, weight) {
-    return `font-family:'${family}','Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',` +
+    return `font-family:'Apple Color Emoji','${family}','Segoe UI Emoji','Noto Color Emoji',` +
            `-apple-system,BlinkMacSystemFont,sans-serif;font-weight:${weight};`;
 }
 
