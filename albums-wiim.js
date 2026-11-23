@@ -1,4 +1,4 @@
-import { resolveArtwork } from './radio-artwork.js?v=1';
+import { resolveArtwork } from './radio-artwork.js?v=2';
 /**
  * ALBUMS MODULE (Full-Screen Immersion Edition with ML Face Detection)
  */
@@ -228,7 +228,13 @@ function classifyPlayback(status, meta) {
 }
 async function getJSON(url, timeout=4000) {
     const ctrl = new AbortController(), t = setTimeout(()=>ctrl.abort(),timeout);
-    try { const r = await fetch(url,{signal:ctrl.signal}); if(!r.ok)throw Error('HTTP '+r.status); return await r.json(); }
+    try {
+        let r; try { r=await fetch(url,{signal:ctrl.signal,credentials:'omit'}); } catch(e) { throw Error('Network request failed: '+e.message); }
+        if(!r.ok)throw Error('HTTP '+r.status);
+        const raw=(await r.text()).replace(/^\uFEFF/,'').trim();
+        if(!raw)return null;
+        try{return JSON.parse(raw);}catch{throw Error('Invalid metadata response');}
+    }
     finally {clearTimeout(t);}
 }
 function enterLive() {
@@ -258,7 +264,9 @@ async function radioSource(session) {
     const now=Date.now();
     if (now-radioCheckedAt>=CONFIG.RADIO_POLL_INTERVAL || !radioCheckedAt) {
         radioCheckedAt=now;
-        const response=await getJSON('https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4',10000);
+        let response;
+        try { response=await getJSON('https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4',10000); }
+        catch(e){radioCheckedAt=0;throw Error('Kan metadata: '+e.message);}
         if(session!==epoch)return;
         radioCache=response;
     }
@@ -271,7 +279,9 @@ async function radioSource(session) {
     }
     const key='radio|'+title+'|'+artists.join('|')+'|'+start;
     if(radioAttemptedKey!==key){
-        const match=await resolveArtwork(title,artists);
+        if(forcedRadio&&!state.displayedLiveTrack)radioMessage('KAN 88 — Finding cover: '+title+' — '+artists.join(', '));
+        let match;
+        try {match=await resolveArtwork(title,artists);}catch(e){throw Error('Artwork search: '+e.message);}
         if(session!==epoch)return;
         radioAttemptedKey=key;
         radioArtwork=match?.image||'';
@@ -307,7 +317,7 @@ async function checkLive(session) {
         if(session!==epoch)return;
         console.warn('[Albums] Playback source unavailable',err);
         if(!lastFailureAt)lastFailureAt=Date.now();
-        if(forcedRadio) {if(!state.displayedLiveTrack)radioMessage('KAN 88 — Connection failed: '+err.message);}
+        if(forcedRadio) {if(!state.displayedLiveTrack)radioMessage('KAN 88 — '+err.message+' • retrying');}
         else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
         delay=5000;
     }finally{if(session===epoch)intervals.live=setTimeout(()=>checkLive(session),delay);}
