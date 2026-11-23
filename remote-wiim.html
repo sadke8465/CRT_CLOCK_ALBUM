@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Album CRT Remote</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #f2f1ec;
+    color: #1d1d1f;
+    font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 52px 24px 64px;
+    gap: 24px;
+  }
+
+  /* ── Header ── */
+  .eyebrow {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #8e8e93;
+    animation: fadeUp 0.4s ease both;
+  }
+
+  /* ── Segmented control ── */
+  .segment {
+    width: 100%;
+    max-width: 340px;
+    background: rgba(0,0,0,0.07);
+    border-radius: 11px;
+    padding: 3px;
+    display: flex;
+    position: relative;
+    animation: fadeUp 0.4s ease both 0.04s;
+  }
+
+  .seg-pill {
+    position: absolute;
+    inset: 3px auto 3px 3px;
+    width: calc(33.333% - 4px);
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.13), 0 0 0 0.5px rgba(0,0,0,0.05);
+    transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
+    pointer-events: none;
+  }
+
+  .seg-btn {
+    flex: 1;
+    padding: 9px 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: #8e8e93;
+    cursor: pointer;
+    border-radius: 8px;
+    position: relative;
+    transition: color 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .seg-btn.active { color: #1d1d1f; }
+  .seg-btn:active  { opacity: 0.6; }
+
+  /* ── Card ── */
+  .card {
+    width: 100%;
+    max-width: 340px;
+    background: #fff;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 3px 14px rgba(0,0,0,0.07);
+    animation: fadeUp 0.4s ease both 0.08s;
+    display: block;
+  }
+
+  .card.dimmed {
+    display: none;
+  }
+
+  .row {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+
+  .row + .row {
+    border-top: 0.5px solid rgba(0,0,0,0.07);
+  }
+
+  .row-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #aeaeb2;
+  }
+
+  /* ── Input row ── */
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .text-input {
+    flex: 1;
+    background: #f2f1ec;
+    border: none;
+    border-radius: 9px;
+    color: #1d1d1f;
+    font-family: inherit;
+    font-size: 0.88rem;
+    padding: 10px 12px;
+    outline: none;
+    transition: background 0.18s;
+    min-width: 0;
+  }
+
+  .text-input:focus       { background: #e8e7e1; }
+  .text-input::placeholder { color: #c7c7cc; }
+
+  .apply-btn {
+    padding: 10px 15px;
+    background: #1d1d1f;
+    border: none;
+    border-radius: 9px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.12s;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .apply-btn:active { opacity: 0.7; transform: scale(0.95); }
+
+  /* ── Slider ── */
+  .slider-group { display: flex; flex-direction: column; gap: 10px; }
+
+  .slider-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .slider-meta .lbl { font-size: 0.88rem; color: #3a3a3c; }
+  .slider-meta .val {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #1d1d1f;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .slider-track {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .track-cap { font-size: 0.7rem; color: #c7c7cc; flex-shrink: 0; }
+
+  input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    border-radius: 2px;
+    background: #e5e5ea;
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #1d1d1f;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.22);
+    transition: transform 0.12s;
+    cursor: pointer;
+  }
+
+  input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.18); }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #1d1d1f;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.22);
+    border: none;
+    cursor: pointer;
+  }
+
+  /* ── Status ── */
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    animation: fadeUp 0.4s ease both 0.12s;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #c7c7cc;
+    flex-shrink: 0;
+    transition: background 0.4s;
+  }
+
+  .dot.ok  { background: #34c759; }
+  .dot.err { background: #ff3b30; }
+
+  .status-text {
+    font-size: 0.73rem;
+    color: #aeaeb2;
+    transition: color 0.3s;
+  }
+
+  .status-text.err { color: #ff3b30; }
+
+  /* ── Direction buttons ── */
+  .dir-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  .dir-btn {
+    flex: 1;
+    padding: 9px 0;
+    border: 1.5px solid rgba(0,0,0,0.10);
+    background: transparent;
+    font-family: inherit;
+    font-size: 1.1rem;
+    color: #8e8e93;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .dir-btn.active {
+    background: #1d1d1f;
+    color: #fff;
+    border-color: #1d1d1f;
+  }
+
+  .dir-btn:active { opacity: 0.6; }
+
+  /* ── Font picker ── */
+  .font-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .font-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .font-sublabel {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #aeaeb2;
+  }
+
+  .select-input {
+    width: 100%;
+    background: #f2f1ec;
+    border: none;
+    border-radius: 9px;
+    color: #1d1d1f;
+    font-family: inherit;
+    font-size: 0.82rem;
+    padding: 9px 10px;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23aeaeb2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+    transition: background-color 0.18s;
+  }
+
+  .select-input:focus { background-color: #e8e7e1; }
+
+  /* ── Color pickers ── */
+  .color-row {
+    display: flex;
+    gap: 12px;
+  }
+
+  .color-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    flex: 1;
+  }
+
+  .color-item label {
+    font-size: 0.68rem;
+    color: #aeaeb2;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 38px;
+    border: none;
+    border-radius: 9px;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+  }
+
+  input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+    border-radius: 9px;
+  }
+
+  input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 9px;
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<p class="eyebrow">Album CRT Remote</p>
+
+<div class="segment">
+  <div class="seg-pill" id="seg-pill"></div>
+  <button class="seg-btn active" id="btn-albums"  onclick="setMode('albums')">Albums</button>
+  <button class="seg-btn"        id="btn-demo"    onclick="setMode('demo')">Demo</button>
+  <button class="seg-btn"        id="btn-marquee" onclick="setMode('marquee')">Marquee</button>
+</div>
+
+<div class="card" id="albums-card"><div class="row"><div class="row-label">Album source</div><div class="dir-group"><button class="dir-btn active" style="font-size:.85rem" id="src-auto" onclick="setAlbumSource('auto')">Automatic</button><button class="dir-btn" style="font-size:.85rem" id="src-kan88" onclick="setAlbumSource('kan88')">Kan 88</button><button class="dir-btn" style="font-size:.85rem" id="src-random" onclick="setAlbumSource('random')">Random</button></div></div></div><div class="card" id="demo-card">
+  <div class="row">
+    <div class="row-label">Collection</div>
+    <div class="input-row">
+      <input class="text-input" type="text" id="collection-input" placeholder="archive.org identifier" />
+      <button class="apply-btn" onclick="applyCollection()">Apply</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Playback</div>
+    <button class="apply-btn" id="next-btn" style="width:100%;padding:13px 0;font-size:0.9rem;" onclick="switchVideo()">Next Video</button>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Stretch</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Horizontal</span>
+        <span class="val" id="stretch-label">1.00×</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">0.5×</span>
+        <input type="range" id="stretch-slider" min="0.5" max="2.0" step="0.05" value="1.0"
+               oninput="onStretchInput(this.value)" onchange="commitStretch(this.value)" />
+        <span class="track-cap">2×</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card dimmed" id="marquee-card">
+
+  <div class="row">
+    <div class="row-label">Message</div>
+    <div class="input-row">
+      <input class="text-input" type="text" id="mq-message" dir="auto"
+             placeholder="Type text, emoji, עברית…" />
+      <button class="apply-btn" onclick="applyMarquee()">Apply</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Direction</div>
+    <div class="dir-group">
+      <button class="dir-btn active" id="dir-left"  onclick="setDirection('left')">←</button>
+      <button class="dir-btn"        id="dir-right" onclick="setDirection('right')">→</button>
+      <button class="dir-btn"        id="dir-up"    onclick="setDirection('up')">↑</button>
+      <button class="dir-btn"        id="dir-down"  onclick="setDirection('down')">↓</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Font</div>
+    <div class="font-row">
+      <div class="font-col">
+        <span class="font-sublabel">Style</span>
+        <select class="select-input" id="mq-font-family"
+                onchange="commitMarqueeParam('fontFamily', this.value)">
+          <option value="SF Pro Display">SF Pro Display</option>
+          <option value="SF Pro Text">SF Pro Text</option>
+          <option value="SF Pro Rounded">SF Pro Rounded</option>
+          <option value="SF Mono">SF Mono</option>
+        </select>
+      </div>
+      <div class="font-col">
+        <span class="font-sublabel">Weight</span>
+        <select class="select-input" id="mq-font-weight"
+                onchange="commitMarqueeParam('fontWeight', parseInt(this.value))">
+          <option value="100">Ultralight</option>
+          <option value="200">Thin</option>
+          <option value="300">Light</option>
+          <option value="400" selected>Regular</option>
+          <option value="500">Medium</option>
+          <option value="600">Semibold</option>
+          <option value="700">Bold</option>
+          <option value="800">Heavy</option>
+          <option value="900">Black</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Text Size</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Size</span>
+        <span class="val" id="mq-size-label">80px</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">20</span>
+        <input type="range" id="mq-size" min="20" max="2000" step="1" value="80"
+               oninput="onMqSizeInput(this.value)"
+               onchange="commitMarqueeParam('textSize', parseInt(this.value))" />
+        <span class="track-cap">2000</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Stretch</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Horizontal</span>
+        <span class="val" id="mq-stretch-label">1.00×</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">0.5×</span>
+        <input type="range" id="mq-stretch" min="0.5" max="3.0" step="0.05" value="1.0"
+               oninput="onMqStretchInput(this.value)"
+               onchange="commitMarqueeParam('horizontalStretch', parseFloat(this.value))" />
+        <span class="track-cap">3×</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Gap</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">Between copies</span>
+        <span class="val" id="mq-gap-label">200px</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">0</span>
+        <input type="range" id="mq-gap" min="0" max="500" step="1" value="200"
+               oninput="onMqGapInput(this.value)"
+               onchange="commitMarqueeParam('gap', parseInt(this.value))" />
+        <span class="track-cap">500</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Speed</div>
+    <div class="slider-group">
+      <div class="slider-meta">
+        <span class="lbl">px / second</span>
+        <span class="val" id="mq-speed-label">100</span>
+      </div>
+      <div class="slider-track">
+        <span class="track-cap">20</span>
+        <input type="range" id="mq-speed" min="20" max="5000" step="10" value="100"
+               oninput="onMqSpeedInput(this.value)"
+               onchange="commitMarqueeParam('speed', parseInt(this.value))" />
+        <span class="track-cap">5000</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-label">Colors</div>
+    <div class="color-row">
+      <div class="color-item">
+        <label for="mq-text-color">Text</label>
+        <input type="color" id="mq-text-color" value="#ffffff"
+               onchange="commitMarqueeParam('textColor', this.value)" />
+      </div>
+      <div class="color-item">
+        <label for="mq-bg-color">Background</label>
+        <input type="color" id="mq-bg-color" value="#000000"
+               onchange="commitMarqueeParam('bgColor', this.value)" />
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="status-row">
+  <div class="dot" id="dot"></div>
+  <span class="status-text" id="status">Connecting…</span>
+</div>
+
+<script type="module">
+  import { initializeApp }                      from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
+  import { getDatabase, ref, onValue, update }  from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
+  import { firebaseConfig }                     from './firebase-config.js';
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  const settingsRef = ref(db, 'settings');
+
+  const dot        = document.getElementById('dot');
+  const statusEl   = document.getElementById('status');
+  const btnAlbums  = document.getElementById('btn-albums');
+  const btnDemo    = document.getElementById('btn-demo');
+  const btnMarquee = document.getElementById('btn-marquee');
+  const segPill    = document.getElementById('seg-pill');
+  const demoCard   = document.getElementById('demo-card');
+  const marqueeCard = document.getElementById('marquee-card');
+  const colInput   = document.getElementById('collection-input');
+  const slider     = document.getElementById('stretch-slider');
+  const stretchLbl = document.getElementById('stretch-label');
+  const mqMessage  = document.getElementById('mq-message');
+  const mqSize     = document.getElementById('mq-size');
+  const mqSizeLbl  = document.getElementById('mq-size-label');
+  const mqGap      = document.getElementById('mq-gap');
+  const mqGapLbl   = document.getElementById('mq-gap-label');
+  const mqSpeed    = document.getElementById('mq-speed');
+  const mqSpeedLbl = document.getElementById('mq-speed-label');
+  const mqTextColor  = document.getElementById('mq-text-color');
+  const mqBgColor    = document.getElementById('mq-bg-color');
+  const mqFontFamily = document.getElementById('mq-font-family');
+  const mqFontWeight = document.getElementById('mq-font-weight');
+  const mqStretch    = document.getElementById('mq-stretch');
+  const mqStretchLbl = document.getElementById('mq-stretch-label');
+  const dirBtns    = {
+    left:  document.getElementById('dir-left'),
+    right: document.getElementById('dir-right'),
+    up:    document.getElementById('dir-up'),
+    down:  document.getElementById('dir-down'),
+  };
+
+  const connectTimeout = setTimeout(() => {
+    if (!dot.classList.contains('ok')) {
+      statusEl.textContent = 'Cannot reach Firebase';
+      statusEl.className   = 'status-text err';
+      dot.className        = 'dot err';
+    }
+  }, 10000);
+
+  onValue(settingsRef, snap => {
+    clearTimeout(connectTimeout);
+    const s    = snap.val() || {};
+    const mode = s.mode || 'albums';
+
+    // ── Segment pill position (0 = albums, 1 = demo, 2 = marquee) ──
+    const pillIdx = mode === 'demo' ? 1 : mode === 'marquee' ? 2 : 0;
+    segPill.style.transform = `translateX(calc(${pillIdx} * (100% + 6px)))`;
+
+    btnAlbums.classList.toggle('active',  mode === 'albums');
+    btnDemo.classList.toggle('active',    mode === 'demo');
+    btnMarquee.classList.toggle('active', mode === 'marquee');
+
+    document.getElementById('albums-card').classList.toggle('dimmed',mode!=='albums');
+    ['auto','kan88','random'].forEach(source=>document.getElementById('src-'+source).classList.toggle('active',source===(s.albumSource||'auto')));
+    demoCard.classList.toggle('dimmed',    mode !== 'demo');
+    marqueeCard.classList.toggle('dimmed', mode !== 'marquee');
+
+    // ── Sync Demo controls ──
+    const demo = s.demo || {};
+    if (document.activeElement !== colInput)
+      colInput.value = demo.collection || 'demolitionkitchenvideo';
+    if (document.activeElement !== slider) {
+      const v = demo.horizontalStretch ?? 1.0;
+      slider.value           = v;
+      stretchLbl.textContent = Number(v).toFixed(2) + '×';
+    }
+
+    // ── Sync Marquee controls ──
+    const mq = s.marquee || {};
+
+    if (document.activeElement !== mqMessage)
+      mqMessage.value = mq.message ?? 'Hello';
+
+    if (document.activeElement !== mqSize) {
+      const sz = mq.textSize ?? 80;
+      mqSize.value          = sz;
+      mqSizeLbl.textContent = sz + 'px';
+    }
+    if (document.activeElement !== mqGap) {
+      const g = mq.gap ?? 200;
+      mqGap.value          = g;
+      mqGapLbl.textContent = g + 'px';
+    }
+    if (document.activeElement !== mqSpeed) {
+      const sp = mq.speed ?? 100;
+      mqSpeed.value          = sp;
+      mqSpeedLbl.textContent = sp;
+    }
+
+    mqTextColor.value = mq.textColor ?? '#ffffff';
+    mqBgColor.value   = mq.bgColor   ?? '#000000';
+
+    mqFontFamily.value = mq.fontFamily ?? 'SF Pro Display';
+    mqFontWeight.value = String(mq.fontWeight ?? 400);
+
+    if (document.activeElement !== mqStretch) {
+      const sx = mq.horizontalStretch ?? 1.0;
+      mqStretch.value          = sx;
+      mqStretchLbl.textContent = Number(sx).toFixed(2) + '×';
+    }
+
+    const activeDir = mq.direction ?? 'left';
+    Object.entries(dirBtns).forEach(([key, btn]) => {
+      btn.classList.toggle('active', key === activeDir);
+    });
+
+    dot.className        = 'dot ok';
+    statusEl.textContent = 'Connected';
+    statusEl.className   = 'status-text';
+  }, err => {
+    clearTimeout(connectTimeout);
+    statusEl.textContent = err.message;
+    statusEl.className   = 'status-text err';
+    dot.className        = 'dot err';
+  });
+
+  window.setMode = mode => update(settingsRef, { mode });
+  window.setAlbumSource = albumSource => {if(['auto','kan88','random'].includes(albumSource))update(settingsRef,{mode:'albums',albumSource}).catch(err=>{statusEl.textContent=err.message;statusEl.className='status-text err';});};
+
+  window.applyCollection = () => {
+    const val = colInput.value.trim();
+    if (!val) return;
+    update(ref(db, 'settings/demo'), { collection: val });
+  };
+
+  window.onStretchInput = val => {
+    stretchLbl.textContent = Number(val).toFixed(2) + '×';
+  };
+
+  window.commitStretch = val => {
+    update(ref(db, 'settings/demo'), { horizontalStretch: parseFloat(val) });
+  };
+
+  window.switchVideo = () => {
+    update(ref(db, 'settings/demo'), { switchVideo: Date.now() });
+  };
+
+  window.applyMarquee = () => {
+    update(ref(db, 'settings/marquee'), { message: mqMessage.value });
+  };
+
+  window.setDirection = dir => {
+    update(ref(db, 'settings/marquee'), { direction: dir });
+  };
+
+  window.commitMarqueeParam = (key, val) => {
+    update(ref(db, 'settings/marquee'), { [key]: val });
+  };
+
+  window.onMqSizeInput    = val => { mqSizeLbl.textContent    = val + 'px'; };
+  window.onMqGapInput     = val => { mqGapLbl.textContent     = val + 'px'; };
+  window.onMqSpeedInput   = val => { mqSpeedLbl.textContent   = val; };
+  window.onMqStretchInput = val => { mqStretchLbl.textContent = Number(val).toFixed(2) + '×'; };
+</script>
+
+</body>
+</html>
