@@ -1,0 +1,26 @@
+plugins { id 'com.android.application' version '8.7.3' }
+android {
+    namespace 'com.noamsadi.albumcrt'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.noamsadi.albumcrt'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '0.1'
+    }
+    sourceSets.main.assets.srcDirs += layout.buildDirectory.dir('generated/displayAssets').get().asFile
+}
+dependencies { implementation 'androidx.webkit:webkit:1.12.1' }
+tasks.register('prepareDisplayAssets', Copy) {
+    from(rootProject.file('..')) { include 'albums-wiim.js', 'radio-artwork.js', 'applemusic-3.csv' }
+    into layout.buildDirectory.dir('generated/displayAssets')
+    doLast {
+        def f = layout.buildDirectory.file('generated/displayAssets/albums-wiim.js').get().asFile
+        def s = f.text
+        def old = "const wiimBase = privateIP(host) ? 'https://' + host : null;"
+        assert s.contains(old): 'Expected WiiM source declaration missing'
+        f.text = s.replace(old, "const wiimBase = location.origin;")
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'prepareDisplayAssets' }
