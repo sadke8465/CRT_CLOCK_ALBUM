@@ -1,10 +1,11 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRT • WiiM connection test</title>
-<style>body{background:#101010;color:#eee;font:18px system-ui;margin:24px}main{max-width:760px;margin:auto}h1{font-size:28px}input,button{font:inherit;padding:12px;border:1px solid #666;border-radius:8px;background:#242424;color:white}button{cursor:pointer}[hidden]{display:none!important}img{width:min(50vw,280px);display:block;margin:12px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:#bbb}.status{color:#9de5b5}label{display:block;margin-bottom:8px}.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:24px}.panel{min-width:0;border-top:1px solid #555;padding-top:12px}h2{font-size:21px}#radio-art{aspect-ratio:1;object-fit:cover}#raw{max-height:220px;overflow:auto}</style></head>
-<body><main><h1>WiiM connection test</h1><p>Automatic local playback diagnostic • v5 • Nothing is uploaded.</p><div class="panels"><section class="panel"><h2>WiiM</h2><div id="controls"><label for="host">WiiM local IPv4 address</label><input id="host" inputmode="decimal" placeholder="192.168.1.108"><button id="start">Connect</button> <button id="stop">Stop</button></div><p class="status" id="result">Not connected</p><p id="details"></p><img id="art" alt="Current WiiM artwork" hidden><p id="image-status"></p><pre id="raw"></pre></section><section class="panel"><h2>Kan 88 • Live radio</h2><p class="status" id="radio-status">Connecting…</p><p id="radio-track"></p><img id="radio-art" alt="Radio song album artwork" hidden><p id="radio-album"></p><p id="radio-time"></p></section></div></main>
+<style>body{background:#101010;color:#eee;font:18px system-ui;margin:24px}main{max-width:760px;margin:auto}h1{font-size:28px}input,button{font:inherit;padding:12px;border:1px solid #666;border-radius:8px;background:#242424;color:white}button{cursor:pointer}[hidden]{display:none!important}img{width:min(50vw,280px);display:block;margin:12px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:#bbb}.status{color:#9de5b5}label{display:block;margin-bottom:8px}.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:24px}.panel{min-width:0;border-top:1px solid #555;padding-top:12px}h2{font-size:21px}#radio-art{aspect-ratio:1;object-fit:cover}#raw{max-height:220px;overflow:auto}body.tv{margin:0;overflow:hidden;background:#000}body.tv main{max-width:none;padding:6vh 6vw}body.tv main>h1,body.tv main>p,body.tv .panel:nth-child(2),body.tv #raw,body.tv #controls{display:none}body.tv .panels{display:block}body.tv .panel{border:0;padding:0;text-align:center}body.tv h2{font-size:7vw;margin:0 0 2vh}body.tv #result{font-size:9vw;font-weight:900;line-height:1.05;margin:2vh 0}body.tv #details,body.tv #image-status{font-size:4.5vw;font-weight:bold;margin:1vh 0}body.tv #art{width:auto;height:35vh;max-width:80vw;object-fit:contain;margin:1vh auto}body.tv.fail #result{color:#ff6c6c}body.tv.ok #result{color:#78ff94}</style></head>
+<body><main><h1>WiiM connection test</h1><p>Automatic local playback diagnostic • v6 • Nothing is uploaded.</p><div class="panels"><section class="panel"><h2>WiiM</h2><div id="controls"><label for="host">WiiM local IPv4 address</label><input id="host" inputmode="decimal" placeholder="192.168.1.108"><button id="start">Connect</button> <button id="stop">Stop</button></div><p class="status" id="result">Not connected</p><p id="details"></p><img id="art" alt="Current WiiM artwork" hidden><p id="image-status"></p><pre id="raw"></pre></section><section class="panel"><h2>Kan 88 • Live radio</h2><p class="status" id="radio-status">Connecting…</p><p id="radio-track"></p><img id="radio-art" alt="Radio song album artwork" hidden><p id="radio-album"></p><p id="radio-time"></p></section></div></main>
 <script type="module">
 import { resolveArtwork } from './radio-artwork.js?v=2';
 const el=id=>document.getElementById(id);
+const tv=new URLSearchParams(location.search).get('tv')==='1';if(tv)document.body.classList.add('tv');
 el('host').value=new URLSearchParams(location.search).get('ip')||'';
 let running=false, serial=0, timer, previous='', controller;
 const clean=v=>typeof v==='string'&&!/^(unknow|unknown|null|n\/a)$/i.test(v.trim())?v.trim():'';
@@ -25,7 +26,7 @@ async function poll(host,id){
  try{
   const [s,d]=await Promise.all([api('getPlayerStatus'),api('getMetaInfo')]);if(id!==serial)return;
   const m=d.metaData||{}, mode=classify(s,m);
-  el('result').textContent='Connected • '+mode+' • '+new Date().toLocaleTimeString();
+  el('result').textContent=tv?'CONNECTED':'Connected • '+mode+' • '+new Date().toLocaleTimeString();document.body.classList.remove('fail');document.body.classList.add('ok');
   el('details').textContent=[clean(m.title),clean(m.artist),clean(m.album)].filter(Boolean).join(' — ');
   el('raw').textContent=JSON.stringify({status:s,metadata:m},null,2);
   const key=[m.title,m.artist,m.album,m.albumArtURI].join('|');
@@ -34,7 +35,7 @@ async function poll(host,id){
    if(url.origin!==base)throw Error('Artwork is outside WiiM origin');
    url.searchParams.set('t',Date.now());el('art').hidden=false;el('image-status').textContent='Loading artwork…';el('art').src=url.href;
   }else if(mode!=='Music'){previous='';el('art').hidden=true;el('image-status').textContent='';}
- }catch(e){if(id!==serial)return;el('result').textContent='Connection failed: '+e.message;el('raw').textContent='Browser may block local network access, cross-origin requests, or an untrusted device certificate. A local bridge may be required.';el('details').textContent='';el('art').hidden=true;previous='';}
+ }catch(e){if(id!==serial)return;el('result').textContent=tv?'FAILED':'Connection failed: '+e.message;document.body.classList.remove('ok');document.body.classList.add('fail');el('raw').textContent='Browser may block local network access, cross-origin requests, or an untrusted device certificate. A local bridge may be required.';el('details').textContent=tv?'WiiM API unavailable':'';el('art').hidden=true;previous='';}
  finally{clearTimeout(timeout);if(running&&id===serial)timer=setTimeout(()=>poll(host,id),1000);}
 }
 el('art').onload=()=>{el('image-status').textContent='Artwork loaded';};
@@ -71,5 +72,5 @@ async function pollRadio(){
  finally{setTimeout(pollRadio,15000);}
 }
 el('radio-art').onerror=()=>{el('radio-art').hidden=true;el('radio-album').textContent='Artwork unavailable';radioKey='';};
-pollRadio();
+if(!tv)pollRadio();
 </script></body></html>
