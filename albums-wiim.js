@@ -35,6 +35,7 @@ const CONFIG = {
 // --- STATE MANAGEMENT ---
 let intervals = { live: null, csv: null };
 let radioInGap = false;
+let albumSource='auto', radioSelected=false, lastRadioCover='', lastRadioKey='', radioRetryAt=0, radioLookupKey='', radioWantedKey='';
 let epoch = 0, radioCache = null, radioCheckedAt = 0, radioAttemptedKey = '', radioArtwork = '', liveArtworkKey = '', liveArtworkURL = '', lastFailureAt = 0;
 
 let state = {
@@ -54,10 +55,13 @@ let state = {
 
 // --- MODULE INTERFACE ---
 
-export async function init(container) {
+export async function init(container, config={}) {
     console.log("[Albums] Initializing...");
     const session = ++epoch;
     resetState();
+    albumSource=['auto','kan88','random'].includes(config?.source)?config.source:(params.get('source')==='kan88'?'kan88':'auto');
+    radioSelected=albumSource==='kan88';lastRadioCover='';lastRadioKey='';radioRetryAt=0;radioLookupKey='';radioWantedKey='';
+    try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&last.image){lastRadioCover=last.image;lastRadioKey=last.key||'radio|cached';}}catch{}
     radioInGap = false; radioCache = null; radioCheckedAt = 0; radioAttemptedKey = ''; radioArtwork = ''; liveArtworkKey = ''; liveArtworkURL = ''; lastFailureAt = 0;
     injectStyles();
 
@@ -75,14 +79,13 @@ export async function init(container) {
 
     loadFaceModels();
     requestWakeLock();
-    if (forcedRadio) {
+    if (isForcedRadio()) {
         container.insertAdjacentHTML('beforeend', '<div id="radio-message" style="position:absolute;inset:0;display:grid;place-items:center;color:white;font:24px system-ui;text-align:center;pointer-events:none;z-index:20">KAN 88 — Connecting…</div>');
     }
     await loadCSV(session);
     if (session !== epoch) return;
-    if(forcedRadio){
-        try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&last.image)showLive('radio|cached',last.image,true);}catch{}
-        if(!state.isTransitioning)startCsvMode();
+    if(isForcedRadio()){
+        holdRadioArtwork();
     }
     await checkLive(session);
 }
@@ -199,7 +202,9 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
         if (session !== epoch) return;
         state.isTransitioning = false;
         liveArtworkKey = ''; liveArtworkURL = '';
-        if (forcedRadio && !state.hasArtwork) { if(state.currentMode==='LIVE')startCsvMode();else if(state.currentMode==='CSV')setTimeout(()=>{if(session===epoch&&state.currentMode==='CSV')triggerCsvUpdate();},1000); }
+        if(radioSelected&&imageUrl===lastRadioCover){lastRadioCover='';lastRadioKey='';try{localStorage.removeItem('crt-kan88-last');}catch{}}
+        if(radioSelected&&imageUrl===radioArtwork){radioArtwork='';radioRetryAt=Date.now()+30000;}
+        if (radioSelected && !state.hasArtwork) { if(state.currentMode==='LIVE')startCsvMode();else if(state.currentMode==='CSV')setTimeout(()=>{if(session===epoch&&state.currentMode==='CSV')triggerCsvUpdate();},1000); }
         else if (!state.displayedLiveTrack && state.currentMode==='LIVE') startCsvMode();
         console.warn("Failed to load image:", imageUrl);
     };
@@ -223,7 +228,7 @@ function startCsvMode() {
 // --- WIIM / KAN 88 PLAYBACK ---
 const params = new URLSearchParams(location.search);
 const host = params.get('ip') || '';
-const forcedRadio = params.get('source') === 'kan88';
+const isForcedRadio = () => albumSource === 'kan88';
 function privateIP(v) {
     const p = v.split('.');
     return p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && Number(x)<=255) &&
@@ -233,8 +238,9 @@ const wiimBase = privateIP(host) ? 'https://' + host : null;
 const clean = v => typeof v === 'string' && !/^(unknown?|unknown|n\/a|null)$/i.test(v.trim()) ? v.trim() : '';
 const norm = v => String(v || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 function classifyPlayback(status, meta) {
-    if (status.status !== 'play' || String(status.mode) !== '1') return 'idle';
+    if (status.status !== 'play') return 'idle';
     if (/^(radio\s*88\s*fm|kan\s*88|כאן\s*88)$/i.test(clean(meta.title))) return 'radio';
+    if(String(status.mode)!=='1')return 'idle';
     return clean(meta.title) && clean(meta.artist) && clean(meta.album) ? 'music' : 'idle';
 }
 async function getJSON(url, timeout=4000) {
@@ -259,25 +265,35 @@ function showLive(key,url,direct=false) {
     enterLive();
     state.liveTrackStartTime=Date.now();
     state.liveZoomTriggered=false;
-    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');if(key.startsWith('radio|')&&key!=='radio|cached'){try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:url,time:Date.now()}));}catch{}}},direct);
+    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');if(key.startsWith('radio|')&&key!=='radio|cached'){lastRadioCover=url;lastRadioKey=key;try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:url,key,time:Date.now()}));}catch{}}},direct);
 }
 function radioMessage(message) {
     const node=document.getElementById('radio-message');
     if(node){const visible=message&&!state.hasArtwork;node.textContent=visible?message:'';node.style.display=visible?'grid':'none';}
 }
+function holdRadioArtwork() {
+    if(state.isTransitioning)return;
+    if(state.displayedLiveTrack?.startsWith('radio|')) {enterLive();return;}
+    if(lastRadioCover){showLive(lastRadioKey||'radio|cached',lastRadioCover,true);return;}
+    if(state.hasArtwork){enterLive();return;}
+    startCsvMode();
+}
 function enterIdle() {
-    if(forcedRadio){if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;}
+    if(isForcedRadio()){holdRadioArtwork();return;}
+    radioSelected=false;radioWantedKey='';
     state.displayedLiveTrack=null;
     liveArtworkKey=''; liveArtworkURL='';
     if (!state.isTransitioning) startCsvMode();
 }
 async function radioSource(session) {
+    radioSelected=true;
+    holdRadioArtwork();
     const now=Date.now();
     if (now-radioCheckedAt>=(radioInGap?CONFIG.RADIO_GAP_POLL_INTERVAL:CONFIG.RADIO_POLL_INTERVAL) || !radioCheckedAt) {
         radioCheckedAt=now;
         let response;
         try { response=await getJSON('https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4',10000); }
-        catch(e){radioCheckedAt=0;radioInGap=true;console.warn('Kan metadata unavailable',e);if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;}
+        catch(e){radioCheckedAt=0;radioInGap=true;console.warn('Kan metadata unavailable',e);holdRadioArtwork();return;}
         if(session!==epoch)return;
         radioCache=response;
     }
@@ -286,29 +302,32 @@ async function radioSource(session) {
     const end=Date.parse(x.endTime), start=Date.parse(x.startTime);
     if (!title || !artists.length || !Number.isFinite(end) || !Number.isFinite(start) || now>end+15000 || now<start-60000) {
         radioInGap=true;
-        if (state.currentMode==='LIVE' && (state.displayedLiveTrack?.startsWith('radio|') || state.isTransitioning)) return;
-        if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;
+        radioWantedKey='';
+        holdRadioArtwork();return;
     }
     radioInGap=false;
     const key='radio|'+title+'|'+artists.join('|')+'|'+start;
-    if(radioAttemptedKey!==key){
-        if(forcedRadio&&!state.displayedLiveTrack)radioMessage('KAN 88 — Finding cover: '+title+' — '+artists.join(', '));
-        let match;
-        try {match=await resolveArtwork(title,artists);}catch(e){throw Error('Artwork search: '+e.message);}
-        if(session!==epoch)return;
-        radioAttemptedKey=key;
-        radioArtwork=match?.image||'';
-
+    radioWantedKey=key;
+    if(!radioLookupKey&&(radioAttemptedKey!==key||(!radioArtwork&&Date.now()>=radioRetryAt))){
+        radioLookupKey=key;
+        if(isForcedRadio()&&!state.hasArtwork)radioMessage('KAN 88 — Finding cover: '+title+' — '+artists.join(', '));
+        resolveArtwork(title,artists).then(match=>{
+            if(session!==epoch||radioWantedKey!==key||!radioSelected)return;
+            radioAttemptedKey=key;radioArtwork=match?.image||'';radioRetryAt=Date.now()+30000;
+        }).catch(err=>{
+            if(session!==epoch||radioWantedKey!==key)return;
+            console.warn('Artwork search failed',err);radioAttemptedKey=key;radioArtwork='';radioRetryAt=Date.now()+30000;
+        }).finally(()=>{if(session===epoch&&radioLookupKey===key)radioLookupKey='';});
     }
-    if(session!==epoch)return;
-    if(radioArtwork)showLive(key,radioArtwork,true);
-    else if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();
+    if(radioAttemptedKey===key&&radioArtwork)showLive(key,radioArtwork,true);
+    else holdRadioArtwork();
 }
 async function checkLive(session) {
     if(session!==epoch)return;
     let delay=CONFIG.LIVE_POLL_INTERVAL;
     try {
-        if(forcedRadio){await radioSource(session);delay=radioInGap?CONFIG.RADIO_GAP_POLL_INTERVAL:CONFIG.RADIO_POLL_INTERVAL;}
+        if(albumSource==='random'){enterIdle();delay=5000;}
+        else if(isForcedRadio()){await radioSource(session);delay=radioInGap?CONFIG.RADIO_GAP_POLL_INTERVAL:CONFIG.RADIO_POLL_INTERVAL;}
         else if(!wiimBase){enterIdle();delay=5000;}
         else {
             const [status,data]=await Promise.all(['getPlayerStatus','getMetaInfo'].map(c=>getJSON(wiimBase+'/httpapi.asp?command='+c)));
@@ -316,6 +335,7 @@ async function checkLive(session) {
             const meta=data.metaData||{},mode=classifyPlayback(status,meta);
             if(mode==='radio')await radioSource(session);
             else if(mode==='music'){
+                radioSelected=false;radioWantedKey='';
                 const key='music|'+[meta.artist,meta.album,meta.title].join('|');
                 if(liveArtworkKey!==key){
                     const url=new URL(meta.albumArtURI||'/data/AirplayArtWorkData.jpeg',wiimBase);
@@ -331,7 +351,7 @@ async function checkLive(session) {
         if(session!==epoch)return;
         console.warn('[Albums] Playback source unavailable',err);
         if(!lastFailureAt)lastFailureAt=Date.now();
-        if(forcedRadio) {if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();}
+        if(isForcedRadio()||radioSelected) {holdRadioArtwork();}
         else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
         delay=5000;
     }finally{if(session===epoch)intervals.live=setTimeout(()=>checkLive(session),delay);}

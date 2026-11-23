@@ -1,1 +1,48 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Album CRT</title><style>html,body,#stage{margin:0;width:100%;height:100%;background:#000;overflow:hidden}</style><script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script></head><body><div id="stage"></div><script type="module">import * as Albums from './albums-wiim.js'; Albums.init(document.getElementById('stage'));</script></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Album CRT</title><link rel="stylesheet" href="fonts.css"><style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}#stage{width:100vw;height:100vh;opacity:1;transition:opacity .45s ease-in-out;will-change:opacity}</style><script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script></head><body><div id="stage"></div><script type="module">
+import * as Albums from './albums-wiim.js';
+import * as Demo from './demo.js';
+import * as Marquee from './marquee.js';
+import {firebaseConfig} from './firebase-config.js';
+const stage=document.getElementById('stage');
+const allowed=(v,options,fallback)=>options.includes(v)?v:fallback;
+const clamp=(v,min,max,def)=>Number.isFinite(Number(v))?Math.min(max,Math.max(min,Number(v))):def;
+const color=(v,def)=>typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v)?v:def;
+function sanitize(s) {
+ const d=s?.demo||{},m=s?.marquee||{};
+ return {mode:allowed(s?.mode,['albums','demo','marquee'],'albums'),
+  albumSource:allowed(s?.albumSource,['auto','kan88','random'],'auto'),
+  demo:{collection:typeof d.collection==='string'&&/^[a-zA-Z0-9_.-]{1,120}$/.test(d.collection)?d.collection:'demolitionkitchenvideo',horizontalStretch:clamp(d.horizontalStretch,.5,2,1),switchVideo:Number.isFinite(d.switchVideo)?d.switchVideo:null},
+  marquee:{message:typeof m.message==='string'?m.message.slice(0,2000):'Hello',direction:allowed(m.direction,['left','right','up','down'],'left'),textSize:clamp(m.textSize,20,2000,80),gap:clamp(m.gap,0,500,200),speed:clamp(m.speed,20,5000,100),textColor:color(m.textColor,'#ffffff'),bgColor:color(m.bgColor,'#000000'),horizontalStretch:clamp(m.horizontalStretch,.5,3,1),fontFamily:allowed(m.fontFamily,['SF Pro Display','SF Pro Text','SF Pro Rounded','SF Mono'],'SF Pro Display'),fontWeight:clamp(m.fontWeight,100,900,400)}};
+}
+let saved={};try{saved=JSON.parse(localStorage.getItem('album-crt-settings')||'{}');}catch{}
+let desired=sanitize(saved),active=null,activeKey='',activeConfig='',lastVideo=null,switching=false;
+function key(s){return s.mode==='albums'?'albums:'+s.albumSource:s.mode;}
+function applyNow(s) {
+ const mod=s.mode==='demo'?Demo:s.mode==='marquee'?Marquee:Albums;
+ const cfg=s.mode==='demo'?{collection:s.demo.collection,horizontalStretch:s.demo.horizontalStretch}:s.mode==='marquee'?s.marquee:{source:s.albumSource};
+ const fingerprint=JSON.stringify(cfg);
+ if(activeKey===key(s)){
+   if(activeConfig!==fingerprint&&typeof mod.updateConfig==='function'){mod.updateConfig(cfg);activeConfig=fingerprint;}
+   if(s.mode==='demo'&&s.demo.switchVideo!==lastVideo&&lastVideo!==null&&s.demo.switchVideo!==null)Demo.nextVideo();
+   if(s.mode==='demo')lastVideo=s.demo.switchVideo;
+   return;
+ }
+ if(active)active.cleanup?.();
+ stage.innerHTML='';stage.style.cssText='';
+ active=mod;activeKey=key(s);activeConfig=fingerprint;lastVideo=s.demo.switchVideo;
+ mod.init(stage,cfg);
+}
+function render(){
+ if(switching)return;
+ if(!active||activeKey===key(desired)){applyNow(desired);return;}
+ switching=true;stage.style.opacity='0';
+ setTimeout(()=>{applyNow(desired);stage.style.opacity='0';requestAnimationFrame(()=>{stage.style.opacity='1';setTimeout(()=>{switching=false;render();},500);});},500);
+}
+render();
+// Start native album playback independently from internet connectivity.
+(async()=>{try{
+ const [{initializeApp},{getDatabase,ref,onValue}]=await Promise.all([import('https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js'),import('https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js')]);
+ const db=getDatabase(initializeApp(firebaseConfig));
+ onValue(ref(db,'settings'),snap=>{desired=sanitize(snap.val()||{});try{localStorage.setItem('album-crt-settings',JSON.stringify(desired));}catch{}render();},err=>console.warn('Remote unavailable',err));
+}catch(err){console.warn('Remote unavailable; using saved settings',err);}})();
+</script></body></html>
