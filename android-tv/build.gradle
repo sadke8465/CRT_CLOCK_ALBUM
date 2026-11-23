@@ -6,14 +6,14 @@ android {
         applicationId 'com.noamsadi.albumcrt'
         minSdk 23
         targetSdk 35
-        versionCode 4
-        versionName '0.4'
+        versionCode 5
+        versionName '0.5'
     }
     sourceSets.main.assets.srcDirs += layout.buildDirectory.dir('generated/displayAssets').get().asFile
 }
 dependencies { implementation 'androidx.webkit:webkit:1.12.1' }
-tasks.register('prepareDisplayAssets', Copy) {
-    from(rootProject.file('..')) { include 'albums-wiim.js', 'radio-artwork.js', 'applemusic-3.csv', 'demo.js', 'marquee.js', 'firebase-config.js', 'fonts.css', 'SF-*.otf' }
+tasks.register('prepareDisplayAssets', Sync) {
+    from(rootProject.file('..')) { include 'albums-wiim.js', 'radio-artwork.js', 'applemusic-3.csv', 'demo.js', 'marquee.js', 'firebase-config.js', 'fonts.css' }
     into layout.buildDirectory.dir('generated/displayAssets')
     doLast {
         def f = layout.buildDirectory.file('generated/displayAssets/albums-wiim.js').get().asFile
@@ -21,6 +21,9 @@ tasks.register('prepareDisplayAssets', Copy) {
         def old = "const wiimBase = privateIP(host) ? 'https://' + host : null;"
         assert s.contains(old): 'Expected WiiM source declaration missing'
         f.text = s.replace(old, "const wiimBase = location.origin;")
+        // Keep CSS local for offline startup; download individual font faces only when used.
+        def css = layout.buildDirectory.file('generated/displayAssets/fonts.css').get().asFile
+        css.text = css.text.replace("url('SF-", "url('https://sadke8465.github.io/CRT_CLOCK_ALBUM/SF-")
     }
 }
 tasks.named('preBuild').configure { dependsOn 'prepareDisplayAssets' }
