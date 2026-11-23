@@ -24,7 +24,8 @@ const CONFIG = {
     
     // Read-only local source and official radio metadata
     LIVE_POLL_INTERVAL: 1000,
-    RADIO_POLL_INTERVAL: 15000,
+    RADIO_POLL_INTERVAL: 10000,
+    RADIO_GAP_POLL_INTERVAL: 5000,
     LIVE_FAILURE_GRACE_MS: 5000,
 
     // ML Model URL (using a fast CDN for the weights)
@@ -33,6 +34,7 @@ const CONFIG = {
 
 // --- STATE MANAGEMENT ---
 let intervals = { live: null, csv: null };
+let radioInGap = false;
 let epoch = 0, radioCache = null, radioCheckedAt = 0, radioAttemptedKey = '', radioArtwork = '', liveArtworkKey = '', liveArtworkURL = '', lastFailureAt = 0;
 
 let state = {
@@ -76,6 +78,7 @@ export async function init(container) {
         container.insertAdjacentHTML('beforeend', '<div id="radio-message" style="position:absolute;inset:0;display:grid;place-items:center;color:white;font:24px system-ui;text-align:center;pointer-events:none;z-index:20">KAN 88 — Connecting…</div>');
     } else await loadCSV(session);
     if (session !== epoch) return;
+    if(forcedRadio){try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&Date.now()-last.time<10*60*1000&&last.image)showLive('radio|cached',last.image,true);}catch{}}
     await checkLive(session);
 }
 
@@ -229,7 +232,7 @@ function classifyPlayback(status, meta) {
 async function getJSON(url, timeout=4000) {
     const ctrl = new AbortController(), t = setTimeout(()=>ctrl.abort(),timeout);
     try {
-        let r; try { r=await fetch(url,{signal:ctrl.signal,credentials:'omit'}); } catch(e) { throw Error('Network request failed: '+e.message); }
+        let r; try { r=await fetch(url,{signal:ctrl.signal,credentials:'omit',cache:'no-cache'}); } catch(e) { throw Error('Network request failed: '+e.message); }
         if(!r.ok)throw Error('HTTP '+r.status);
         const raw=(await r.text()).replace(/^\uFEFF/,'').trim();
         if(!raw)return null;
@@ -262,7 +265,7 @@ function enterIdle() {
 }
 async function radioSource(session) {
     const now=Date.now();
-    if (now-radioCheckedAt>=CONFIG.RADIO_POLL_INTERVAL || !radioCheckedAt) {
+    if (now-radioCheckedAt>=(radioInGap?CONFIG.RADIO_GAP_POLL_INTERVAL:CONFIG.RADIO_POLL_INTERVAL) || !radioCheckedAt) {
         radioCheckedAt=now;
         let response;
         try { response=await getJSON('https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4',10000); }
@@ -274,9 +277,11 @@ async function radioSource(session) {
     const x=radioCache||{},title=clean(x.title),artists=Array.isArray(x.artists)?x.artists.map(clean).filter(Boolean):[];
     const end=Date.parse(x.endTime), start=Date.parse(x.startTime);
     if (!title || !artists.length || !Number.isFinite(end) || !Number.isFinite(start) || now>end+15000 || now<start-60000) {
-        if (state.currentMode==='LIVE' && state.displayedLiveTrack?.startsWith('radio|')) return;
-        enterIdle(); return;
+        radioInGap=true;
+        if (state.currentMode==='LIVE' && (state.displayedLiveTrack?.startsWith('radio|') || state.isTransitioning)) return;
+        if(forcedRadio)radioMessage('KAN 88 — Waiting for station metadata • retrying');else enterIdle();return;
     }
+    radioInGap=false;
     const key='radio|'+title+'|'+artists.join('|')+'|'+start;
     if(radioAttemptedKey!==key){
         if(forcedRadio&&!state.displayedLiveTrack)radioMessage('KAN 88 — Finding cover: '+title+' — '+artists.join(', '));
@@ -285,6 +290,7 @@ async function radioSource(session) {
         if(session!==epoch)return;
         radioAttemptedKey=key;
         radioArtwork=match?.image||'';
+        if(radioArtwork){try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:radioArtwork,time:Date.now()}));}catch{}}
     }
     if(session!==epoch)return;
     if(radioArtwork)showLive(key,radioArtwork,true);
@@ -294,7 +300,7 @@ async function checkLive(session) {
     if(session!==epoch)return;
     let delay=CONFIG.LIVE_POLL_INTERVAL;
     try {
-        if(forcedRadio){await radioSource(session);delay=CONFIG.RADIO_POLL_INTERVAL;}
+        if(forcedRadio){await radioSource(session);delay=radioInGap?CONFIG.RADIO_GAP_POLL_INTERVAL:CONFIG.RADIO_POLL_INTERVAL;}
         else if(!wiimBase){enterIdle();delay=5000;}
         else {
             const [status,data]=await Promise.all(['getPlayerStatus','getMetaInfo'].map(c=>getJSON(wiimBase+'/httpapi.asp?command='+c)));
