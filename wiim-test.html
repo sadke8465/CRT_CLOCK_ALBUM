@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRT • WiiM connection test</title>
-<style>body{background:#101010;color:#eee;font:18px system-ui;margin:24px}main{max-width:760px;margin:auto}h1{font-size:28px}input,button{font:inherit;padding:12px;border:1px solid #666;border-radius:8px;background:#242424;color:white}button{cursor:pointer}[hidden]{display:none!important}img{width:min(50vw,280px);display:block;margin:12px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:#bbb}.status{color:#9de5b5}label{display:block;margin-bottom:8px}</style></head>
-<body><main><h1>WiiM connection test</h1><p>Automatic local playback diagnostic • v2 • Nothing is uploaded.</p><div id="controls"><label for="host">WiiM local IPv4 address</label><input id="host" inputmode="decimal" placeholder="192.168.1.108"><button id="start">Connect</button> <button id="stop">Stop</button></div><p class="status" id="result">Not connected</p><p id="details"></p><img id="art" alt="Current WiiM artwork" hidden><p id="image-status"></p><pre id="raw"></pre></main>
+<style>body{background:#101010;color:#eee;font:18px system-ui;margin:24px}main{max-width:760px;margin:auto}h1{font-size:28px}input,button{font:inherit;padding:12px;border:1px solid #666;border-radius:8px;background:#242424;color:white}button{cursor:pointer}[hidden]{display:none!important}img{width:min(50vw,280px);display:block;margin:12px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:#bbb}.status{color:#9de5b5}label{display:block;margin-bottom:8px}.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:24px}.panel{min-width:0;border-top:1px solid #555;padding-top:12px}h2{font-size:21px}#radio-art{aspect-ratio:1;object-fit:cover}#raw{max-height:220px;overflow:auto}</style></head>
+<body><main><h1>WiiM connection test</h1><p>Automatic local playback diagnostic • v3 • Nothing is uploaded.</p><div class="panels"><section class="panel"><h2>WiiM</h2><div id="controls"><label for="host">WiiM local IPv4 address</label><input id="host" inputmode="decimal" placeholder="192.168.1.108"><button id="start">Connect</button> <button id="stop">Stop</button></div><p class="status" id="result">Not connected</p><p id="details"></p><img id="art" alt="Current WiiM artwork" hidden><p id="image-status"></p><pre id="raw"></pre></section><section class="panel"><h2>Kan 88 • Live radio</h2><p class="status" id="radio-status">Connecting…</p><p id="radio-track"></p><img id="radio-art" alt="Radio song album artwork" hidden><p id="radio-album"></p><p id="radio-time"></p></section></div></main>
 <script>
 const el=id=>document.getElementById(id);
 el('host').value=new URLSearchParams(location.search).get('ip')||'';
@@ -41,4 +41,41 @@ el('art').onerror=()=>{el('image-status').textContent='Artwork blocked or unavai
 el('start').onclick=()=>{stop();const host=el('host').value.trim();if(!localIPv4(host)){el('result').textContent='Enter a valid private IPv4 address';return;}running=true;el('result').textContent='Connecting…';poll(host,serial);};
 el('stop').onclick=()=>{stop();el('result').textContent='Stopped';};
 if(localIPv4(el('host').value)){el('controls').hidden=true;el('start').click();}
+
+const radioApi='https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4';
+let radioKey='',radioArtwork='',radioAlbum='';
+const normalize=s=>String(s||'').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+async function radioFetch(url){const c=new AbortController(),t=setTimeout(()=>c.abort(),10000);try{const r=await fetch(url,{signal:c.signal});if(!r.ok)throw Error('HTTP '+r.status);return await r.json();}finally{clearTimeout(t);}}
+async function lookupRadioArt(title,artists){
+ const q=new URLSearchParams({term:artists[0]+' '+title,entity:'song',country:'il',limit:'15'});
+ const data=await radioFetch('https://itunes.apple.com/search?'+q);
+ const matches=(data.results||[]).filter(r=>normalize(r.trackName)===normalize(title)&&artists.some(a=>normalize(r.artistName)===normalize(a))&&r.artworkUrl100);
+ matches.sort((a,b)=>Number(/best of|greatest hits|collection|anthology|compilation/i.test(a.collectionName||''))-Number(/best of|greatest hits|collection|anthology|compilation/i.test(b.collectionName||'')));
+ const match=matches[0];if(!match)return null;
+ return {image:match.artworkUrl100.replace('100x100bb','1200x1200bb'),album:match.collectionName||''};
+}
+async function pollRadio(){
+ try{
+  const x=await radioFetch(radioApi), title=clean(x.title),artists=Array.isArray(x.artists)?x.artists.map(clean).filter(Boolean):[];
+  const end=Date.parse(x.endTime),start=Date.parse(x.startTime),now=Date.now();
+  if(!title||!artists.length||!Number.isFinite(end)||!Number.isFinite(start)||now>end+15000||now<start-60000){
+   el('radio-status').textContent='No verified live song • waiting';
+   el('radio-track').textContent='';el('radio-time').textContent='';el('radio-art').hidden=true;el('radio-album').textContent='';radioKey='';return;
+  }
+  el('radio-status').textContent='Live metadata received';
+  el('radio-track').textContent=title+' — '+artists.join(', ');
+  el('radio-time').textContent='Broadcast: '+new Date(start).toLocaleTimeString()+' – '+new Date(end).toLocaleTimeString();
+  const key=title+'|'+artists.join('|')+'|'+start;
+  if(key!==radioKey){
+   el('radio-art').hidden=true;el('radio-album').textContent='Looking up album…';
+   const match=await lookupRadioArt(title,artists);
+   radioKey=key;radioArtwork=match?.image||'';radioAlbum=match?.album||'';
+   if(radioArtwork){el('radio-art').src=radioArtwork;el('radio-art').hidden=false;el('radio-album').textContent=radioAlbum+' • iTunes match';}
+   else{el('radio-album').textContent='No reliable artwork match';}
+  }else if(radioArtwork){el('radio-art').hidden=false;el('radio-album').textContent=radioAlbum+' • iTunes match';}
+ }catch(e){el('radio-status').textContent='Radio check failed: '+e.message;el('radio-art').hidden=true;el('radio-album').textContent='';el('radio-track').textContent='';el('radio-time').textContent='';radioKey='';}
+ finally{setTimeout(pollRadio,15000);}
+}
+el('radio-art').onerror=()=>{el('radio-art').hidden=true;el('radio-album').textContent='Artwork unavailable';radioKey='';};
+pollRadio();
 </script></body></html>
