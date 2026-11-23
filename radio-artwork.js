@@ -15,9 +15,14 @@ function artistScore(expected,actual){
  const strip=s=>normalize(String(s).replace(/\s+(?:and|&)\s+(?:his|her|their|the)\s+(?:orchestra|band|ensemble|quartet|trio)$/i,''));
  return strip(expected)===strip(actual)&&strip(expected).length>=5?80:0;
 }
+function oneEdit(a,b){
+ if(a.length<8||b.length<8||Math.abs(a.length-b.length)>1)return false;
+ if(a.length>b.length)[a,b]=[b,a];
+ let i=0,j=0,edits=0;while(i<a.length&&j<b.length){if(a[i]===b[j]){i++;j++;}else{if(++edits>1)return false;if(a.length===b.length)i++;j++;}}return edits+(b.length-j)<=1;
+}
 export function matchScore(title,artists,track,artist){
- const ts=normalize(title)===normalize(track)?100:bareTitle(title)===bareTitle(track)?90:0;
  const as=Math.max(0,...artists.map(a=>artistScore(a,artist)));
+ const ts=normalize(title)===normalize(track)?100:bareTitle(title)===bareTitle(track)?90:as===100&&oneEdit(bareTitle(title),bareTitle(track))?75:0;
  return ts&&as?ts+as:0;
 }
 function rank(title,artists,candidates){
