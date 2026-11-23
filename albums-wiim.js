@@ -5,7 +5,10 @@ import { resolveArtwork } from './radio-artwork.js?v=2';
 
 // --- CONFIGURATION ---
 const CONFIG = {
-    CSV_FILENAME: 'applemusic-3.csv', 
+    CSV_FILENAME: 'applemusic-3.csv',
+    EXACT_ARTWORK_FILENAME: 'random-artwork.json',
+    EXACT_ARTWORK_REMOTE: 'https://sadke8465.github.io/CRT_CLOCK_ALBUM/random-artwork.json',
+    EXACT_ARTWORK_REFRESH_MS: 15 * 60 * 1000, 
     CSV_INTERVAL_MS: 500000, 
     STORE_COUNTRY: 'il', 
     
@@ -34,7 +37,8 @@ const CONFIG = {
 };
 
 // --- STATE MANAGEMENT ---
-let intervals = { live: null, csv: null };
+let intervals = { live: null, csv: null, pool: null };
+let catalogTracks=[], exactTracks=[], exactImageKeys=new Set(), poolSignature='';
 let radioInGap = false;
 let idleSince=0, hadLivePlayback=false;
 let albumSource='auto', radioSelected=false, lastRadioCover='', lastRadioKey='', radioRetryAt=0, radioLookupKey='', radioWantedKey='';
@@ -61,7 +65,7 @@ export async function init(container, config={}) {
     console.log("[Albums] Initializing...");
     const session = ++epoch;
     resetState();
-    idleSince=0;hadLivePlayback=false;
+    idleSince=0;hadLivePlayback=false;catalogTracks=[];exactTracks=[];exactImageKeys=new Set();poolSignature='';
     albumSource=['auto','kan88','random'].includes(config?.source)?config.source:(params.get('source')==='kan88'?'kan88':'auto');
     radioSelected=albumSource==='kan88';lastRadioCover='';lastRadioKey='';radioRetryAt=0;radioLookupKey='';radioWantedKey='';
     try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&last.image){lastRadioCover=last.image;lastRadioKey=last.key||'radio|cached';}}catch{}
@@ -87,6 +91,8 @@ export async function init(container, config={}) {
     }
     await loadCSV(session);
     if (session !== epoch) return;
+    refreshExactArtwork(session);
+    intervals.pool=setInterval(()=>refreshExactArtwork(session),CONFIG.EXACT_ARTWORK_REFRESH_MS);
     if(isForcedRadio()){
         holdRadioArtwork();
     }
@@ -98,6 +104,7 @@ export function cleanup() {
     epoch++;
     if (intervals.live) clearTimeout(intervals.live);
     if (intervals.csv) clearInterval(intervals.csv);
+    if (intervals.pool) clearInterval(intervals.pool);
     stopSmartAnimation(); 
     resetState();
 }
@@ -117,7 +124,7 @@ function resetState() {
         isTransitioning: false,
         modelsLoaded: state.modelsLoaded // Preserve model load state across resets
     };
-    intervals = { live: null, csv: null };
+    intervals = { live: null, csv: null, pool: null };
 }
 
 // --- ML INITIALIZATION ---
@@ -206,6 +213,7 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false, va
     loader.onerror = () => {
         if (session !== epoch) return;
         state.isTransitioning = false;
+        if(state.currentMode==='CSV'&&valid()){setTimeout(()=>{if(session===epoch&&state.currentMode==='CSV')triggerCsvUpdate();},5000);return;}
         liveArtworkKey = ''; liveArtworkURL = '';
         if(radioSelected&&imageUrl===lastRadioCover){lastRadioCover='';lastRadioKey='';try{localStorage.removeItem('crt-kan88-last');}catch{}}
         if(radioSelected&&imageUrl===radioArtwork){radioArtwork='';radioRetryAt=Date.now()+30000;}
@@ -615,47 +623,80 @@ function shuffleArray(array) {
     }
 }
 
-async function loadCSV(session) {
-    try {
-        const response = await fetch(CONFIG.CSV_FILENAME);
-        if (!response.ok) return; 
-        const csv = await response.text();
-        if(session===epoch)parseCSV(csv);
-    } catch (error) { console.error("CSV Load Error", error); }
+function artworkKey(value) {
+    try{
+        const url=new URL(value);
+        if(url.protocol!=='https:'||!/(^|\.)mzstatic\.com$/i.test(url.hostname)||url.username||url.password||url.port)return '';
+        return url.pathname.replace(/\/\d+x\d+[^/]*\.(?:jpg|jpeg|png|webp)$/i,'');
+    }catch{return '';}
 }
-
-function parseCSV(text) {
-    const lines = text.split('\n').filter(l => l.trim() !== '');
-    if (lines.length < 2) return;
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const idIndex = headers.indexOf('id');
-    if (idIndex === -1) return;
-    const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
-
-    for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(splitRegex).map(c => c.replace(/^"|"$/g, '').trim());
-        if (cols.length > idIndex) state.csvTrackList.push({ id: cols[idIndex] });
+function readExactArtwork(manifest){
+    if(manifest?.schemaVersion!==1||!Array.isArray(manifest.entries))return null;
+    const images=new Set(),result=[];
+    for(const entry of manifest.entries.slice(0,5000)){
+        const key=artworkKey(entry?.image);
+        if(!key||images.has(key)||!/^\d+$/.test(String(entry.id||'')))continue;
+        images.add(key);result.push({id:String(entry.id),image:entry.image});
     }
-    if (state.csvTrackList.length > 0) shuffleArray(state.csvTrackList);
+    return result;
 }
-
+function rebuildArtworkPool(){
+    const ids=new Set(exactTracks.map(x=>x.id));
+    exactImageKeys=new Set(exactTracks.map(x=>artworkKey(x.image)));
+    const merged=[...exactTracks,...catalogTracks.filter(x=>!ids.has(x.id))];
+    const signature=JSON.stringify(merged);
+    if(signature===poolSignature)return;
+    poolSignature=signature;
+    state.csvTrackList=merged;
+    shuffleArray(state.csvTrackList);state.csvIndex=0;
+    console.log('Artwork pool:',exactTracks.length,'exact covers +',merged.length-exactTracks.length,'catalog tracks');
+}
+async function refreshExactArtwork(session){
+    try{
+        const data=await getJSON(CONFIG.EXACT_ARTWORK_REMOTE,10000);
+        const entries=readExactArtwork(data);
+        if(session!==epoch||!entries?.length)return;
+        exactTracks=entries;rebuildArtworkPool();
+    }catch(e){console.debug('Using bundled artwork pool',e);}
+}
+async function loadCSV(session) {
+    const tasks=[
+        fetch(CONFIG.CSV_FILENAME).then(r=>{if(!r.ok)throw Error('CSV HTTP '+r.status);return r.text();}).then(csv=>{if(session===epoch)parseCSV(csv);}),
+        fetch(CONFIG.EXACT_ARTWORK_FILENAME).then(r=>{if(!r.ok)throw Error('Manifest HTTP '+r.status);return r.json();}).then(data=>{if(session!==epoch)return;const entries=readExactArtwork(data);if(entries?.length)exactTracks=entries;})
+    ];
+    await Promise.allSettled(tasks);
+    if(session===epoch)rebuildArtworkPool();
+}
+function parseCSV(text) {
+    const lines=text.split('\n').filter(l=>l.trim()!=='');
+    if(lines.length<2)return;
+    const headers=lines[0].split(',').map(h=>h.trim().toLowerCase());
+    const idIndex=headers.indexOf('id');if(idIndex===-1)return;
+    const splitRegex=/,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+    const seen=new Set();
+    for(let i=1;i<lines.length;i++){
+        const cols=lines[i].split(splitRegex).map(c=>c.replace(/^"|"$/g,'').trim());
+        const id=cols[idIndex];
+        if(!/^\d+$/.test(id||'')||seen.has(id))continue;
+        seen.add(id);catalogTracks.push({id});
+    }
+}
 function triggerCsvUpdate() {
-    if (state.currentMode !== 'CSV') return;
-    if (state.csvTrackList.length === 0) return;
-
-    const track = state.csvTrackList[state.csvIndex];
-    if(!track) return; 
-
+    if(state.currentMode!=='CSV'||state.isTransitioning||!state.csvTrackList.length)return;
+    const track=state.csvTrackList[state.csvIndex];if(!track)return;
+    state.csvIndex=(state.csvIndex+1)%state.csvTrackList.length;
     const session=epoch;
-    fetchItunesById(track.id, (url) => {
-        if(session!==epoch || state.currentMode!=='CSV')return;
-        if (url) performVisualTransition(url,null,false,()=>state.currentMode==='CSV');
-        else {
-             state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
-             setTimeout(()=>{if(session===epoch)triggerCsvUpdate();}, 1000); 
-        }
+    const valid=()=>session===epoch&&state.currentMode==='CSV';
+    const retry=()=>{if(valid())setTimeout(()=>{if(valid())triggerCsvUpdate();},1000);};
+    if(track.image){
+        // Exact image supplied by the Apple Music playlist, no catalog search.
+        performVisualTransition(track.image,null,false,valid);return;
+    }
+    fetchItunesById(track.id,url=>{
+        if(!valid())return;
+        if(!url||exactImageKeys.has(artworkKey(url))){retry();return;}
+        performVisualTransition(url,null,false,valid);
     });
-    state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
 }
 
 function fetchItunesById(appleId, callback) {

@@ -1,0 +1,642 @@
+{
+  "schemaVersion": 1,
+  "playlist": {
+    "name": "YYY",
+    "url": "https://music.apple.com/il/playlist/yyy/pl.u-aZb01kDT7R7B2",
+    "storefront": "il"
+  },
+  "entries": [
+    {
+      "id": "259573440",
+      "title": "Honesty",
+      "artist": "Billy Joel",
+      "album": "52nd Street",
+      "albumId": "259573387",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/d6/02/07/d60207ae-a49f-8f20-c8e6-d58e794b9ae5/dj.lzzblgca.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "185985548",
+      "title": "Bird On a Wire",
+      "artist": "Leonard Cohen",
+      "album": "Songs from a Room",
+      "albumId": "185985535",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/c0/65/62/c06562e2-3bf7-6b26-2a4c-dccdcbb8eb81/dj.aaxdsqem.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1377813295",
+      "title": "Mr. Brownstone",
+      "artist": "Guns N' Roses",
+      "album": "Appetite For Destruction",
+      "albumId": "1377813284",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/a0/4d/c4/a04dc484-03cc-02aa-fa82-5334fcb4bc16/18UMGIM24878.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "304815013",
+      "title": "Without You",
+      "artist": "Harry Nilsson",
+      "album": "Nilsson Schmilsson",
+      "albumId": "304815001",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/f7/f1/bf/f7f1bf43-3324-6c2d-d7e0-368d506fd56d/078635451528.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "471740903",
+      "title": "Promised Land",
+      "artist": "Elvis Presley",
+      "album": "Promised Land",
+      "albumId": "471740901",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/4f/b3/62/4fb36287-fd23-90cc-9449-0c7fa2556e70/035629059825.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "976827979",
+      "title": "Satellite of Love",
+      "artist": "Lou Reed",
+      "album": "Transformer",
+      "albumId": "976826793",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/2a/e7/69/2ae76967-b94e-3b80-a079-93202eeb6157/886445151930.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440912354",
+      "title": "No Sleep Till Brooklyn",
+      "artist": "Beastie Boys",
+      "album": "Licensed to Ill",
+      "albumId": "1440912031",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/e4/d7/81/e4d781e8-bd3f-486a-cd18-e9b3a7d12b34/00731452735126.rgb.jpg/1200x1181bb.jpg"
+    },
+    {
+      "id": "129643793",
+      "title": "Small Town Talk",
+      "artist": "Bobby Charles",
+      "album": "Bobby Charles (Bonus Track Version)",
+      "albumId": "129644023",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/35/bb/90/35bb908c-089e-5305-57c1-2bfdd65d17bc/mzi.rqyacucv.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "265611986",
+      "title": "For What It's Worth",
+      "artist": "Buffalo Springfield",
+      "album": "Buffalo Springfield",
+      "albumId": "265611980",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/14/12/bb/1412bb4b-d4bd-3fb6-e282-3e96b5988eed/mzi.vdwggpmt.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1319430895",
+      "title": "For What It's Worth",
+      "artist": "Miriam Makeba",
+      "album": "Keep Me In Mind",
+      "albumId": "1319429672",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music118/v4/5f/89/b0/5f89b052-3fd9-8fbc-fbe5-76eb3bf36948/0730003318252_1448.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "961376354",
+      "title": "Act Naturally",
+      "artist": "Buck Owens",
+      "album": "All-Time Greatest Hits, Vol. 1",
+      "albumId": "961376351",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music3/v4/cf/15/0d/cf150d6d-1257-a661-50e8-1d092a13466a/715187734227.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440808975",
+      "title": "You Are the Sunshine of My Life",
+      "artist": "Stevie Wonder",
+      "album": "Talking Book",
+      "albumId": "1440808973",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/62/61/61/626161c0-f4d7-e6ff-8586-768340ef278f/00602537002382.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440830911",
+      "title": "Crazy On You",
+      "artist": "Heart",
+      "album": "Dreamboat Annie",
+      "albumId": "1440830899",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/6b/eb/a8/6beba879-07ae-a03f-c1bc-091ca7064842/13UMGIM47968.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1698564382",
+      "title": "Won't Get Fooled Again (Remastered 2022)",
+      "artist": "The Who",
+      "album": "Who’s Next : Life House (Super Deluxe)",
+      "albumId": "1698563957",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/9c/01/10/9c01101e-8775-111e-a090-d6aa76ff1850/22UMGIM57055.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "203769243",
+      "title": "Roll With the Changes",
+      "artist": "REO Speedwagon",
+      "album": "You Can Tune a Piano, But You Can't Tuna Fish",
+      "albumId": "203769175",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/ea/96/dd/ea96dd36-c5d2-88fd-7ab6-596ca71b8e37/mzi.rmjakbgy.jpg/600x600bb.jpg"
+    },
+    {
+      "id": "554586499",
+      "title": "לפעמים",
+      "artist": "Hayehudim",
+      "album": "היהודים",
+      "albumId": "554586360",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/26/98/81/26988179-294c-9a8b-a0a1-d3af5e0418dc/asset.jpg/1200x1197bb.jpg"
+    },
+    {
+      "id": "95801195",
+      "title": "The Beat Goes On (LP Version)",
+      "artist": "Sonny & Cher",
+      "album": "In Case You're In Love",
+      "albumId": "95802719",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music/da/d6/20/mzi.zvlkejby.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "991385388",
+      "title": "Two Out of Three Ain't Bad",
+      "artist": "Meat Loaf",
+      "album": "Bat Out of Hell",
+      "albumId": "991385383",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/cd/90/b5/cd90b5c4-9379-92ae-da01-4b27ea00697b/886443775787.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440845806",
+      "title": "Dragula",
+      "artist": "Rob Zombie",
+      "album": "Hellbilly Deluxe",
+      "albumId": "1440845642",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/57/a4/07/57a4070f-2d41-754b-90f1-ff14faa6133a/06UMGIM18800.rgb.jpg/1200x1195bb.jpg"
+    },
+    {
+      "id": "1450142860",
+      "title": "San Francisco (Be Sure to Wear Some Flowers In Your Hair)",
+      "artist": "Scott McKenzie",
+      "album": "The Voice of Scott McKenzie (Expanded Edition)",
+      "albumId": "1450142858",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c5/b3/9c/c5b39c26-1a46-2163-9a90-a82abf0437f3/886446812298.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "634142202",
+      "title": "Chestnut Mare",
+      "artist": "The Byrds",
+      "album": "(Untitled)/(Unissued) [Reissue Edition with Bonus Tracks]",
+      "albumId": "634141435",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music2/v4/8d/ca/f8/8dcaf8ef-a253-fed8-66c7-ccf19d2ada6a/886443959248.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "40286679",
+      "title": "Cat's In the Cradle",
+      "artist": "Harry Chapin",
+      "album": "Verities & Balderdash",
+      "albumId": "40286674",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/59/23/4e/59234e42-86ac-818a-6e41-1fa1536aa04f/s06.zywtcmse.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "862275512",
+      "title": "Body Count",
+      "artist": "Body Count",
+      "album": "Body Count",
+      "albumId": "862275493",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/7f/3d/67/7f3d674e-8dd1-4d8f-8935-28dab8fedc78/093624513926.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1480026455",
+      "title": "Sweet Baby James",
+      "artist": "James Taylor",
+      "album": "Sweet Baby James (Remastered)",
+      "albumId": "1480026454",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ed/c3/5a/edc35aac-57d0-44aa-4969-8bb4c13aed52/603497849154.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "399224034",
+      "title": "For Once In My Life",
+      "artist": "Spiral Starecase",
+      "album": "More Today Than Yesterday",
+      "albumId": "399224002",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/fa/f2/b7/faf2b78a-efbb-e559-06d7-f1958725685a/mzi.sjeazmcm.jpg/608x600bb.jpg"
+    },
+    {
+      "id": "271623011",
+      "title": "Song of the South",
+      "artist": "Alabama",
+      "album": "Southern Star",
+      "albumId": "271622993",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/87/a8/55/87a8557a-9f05-52f9-d5d4-6209f39ce48d/dj.rrnyuztg.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "825516880",
+      "title": "Folsom Prison Blues (Live)",
+      "artist": "Johnny Cash",
+      "album": "At Folsom Prison (Live)",
+      "albumId": "825516828",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/f3/75/c1/f375c1d8-9666-0119-c54b-f06e9759da5b/886444492690.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1583624436",
+      "title": "L.A. Woman",
+      "artist": "The Doors",
+      "album": "L.A. Woman (50th Anniversary Deluxe Edition)",
+      "albumId": "1583624237",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/64/a1/f2/64a1f20d-a16b-f27b-a5b7-338d6cf79c16/603497843381.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "203945565",
+      "title": "You Ain't Goin' Nowhere",
+      "artist": "The Byrds",
+      "album": "Sweetheart of the Rodeo (Legacy Edition)",
+      "albumId": "203945407",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Features115/v4/af/30/59/af3059c3-b44d-ea0c-d741-9b61da8055ad/dj.ubxgoifr.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1436092826",
+      "title": "Kung Fu Fighting",
+      "artist": "Carl Douglas",
+      "album": "The Soul of the Kung Fu Fighter",
+      "albumId": "1436092812",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/a3/39/d0/a339d06c-ec27-a414-ed4e-a8783d474d4b/5414939482373.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1393146209",
+      "title": "Go West (1992 12\" Mix)",
+      "artist": "Pet Shop Boys",
+      "album": "Very: Further Listening 1992-1994 (Deluxe Edition) [2018 Remaster]",
+      "albumId": "1393146194",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/dd/ce/a1/ddcea14a-a3ea-aca0-820e-a8a2ae882275/190295788346.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "721224400",
+      "title": "Bullet With Butterfly Wings (Remastered 2012)",
+      "artist": "The Smashing Pumpkins",
+      "album": "Mellon Collie And The Infinite Sadness (2012 Remastered)",
+      "albumId": "721224313",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/ca/ce/b2/caceb2ed-50f0-c666-e4d0-165a0a1541fc/13UABIM04008.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "322969531",
+      "title": "She Bangs the Drums (Remastered 2009)",
+      "artist": "The Stone Roses",
+      "album": "The Stone Roses (Remastered 2009)",
+      "albumId": "322969529",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Features115/v4/de/bd/71/debd715a-d49b-1ec8-6b4d-bf3f25e0e90b/dj.rldpqukx.jpg/600x600bb.jpg"
+    },
+    {
+      "id": "1452511192",
+      "title": "When I Paint My Masterpiece",
+      "artist": "The Band",
+      "album": "Cahoots",
+      "albumId": "1452511179",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/dd/47/b1/dd47b159-b73d-3964-ac5c-f34b87354170/13UMGIM24888.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "699665410",
+      "title": "Girls and Boys",
+      "artist": "Blur",
+      "album": "Parklife",
+      "albumId": "699665183",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/8a/71/66/8a71664b-3baa-537b-e008-b32d86da27bc/5099997227755.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1767041431",
+      "title": "Mary On A Cross",
+      "artist": "Ghost",
+      "album": "Seven Inches of Satanic Panic - Single",
+      "albumId": "1767041429",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/20/72/d3/2072d3b2-238c-1ac2-1f6f-21f683fdc41b/24CRGIM45902.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "721207643",
+      "title": "Cherub Rock",
+      "artist": "The Smashing Pumpkins",
+      "album": "Siamese Dream",
+      "albumId": "721207206",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/3a/dc/08/3adc08b0-e98c-b5dd-943e-a37c7ed06205/13UABIM03615.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "899351076",
+      "title": "להשתטות לפעמים",
+      "artist": "Gabi Shoshan",
+      "album": "שירים שאהבנו",
+      "albumId": "899351066",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/9f/61/f5/9f61f550-f84f-2e2a-530d-e5a7759bd5b4/888831459422.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1571745171",
+      "title": "העץ הוא גבוה",
+      "artist": "Apocalypse",
+      "album": "אחרית הימים",
+      "albumId": "1571745169",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/67/c3/c9/67c3c9be-7460-5eb9-0114-6ca55ea903d1/7290116162218.png/1200x1200bb.jpg"
+    },
+    {
+      "id": "1031010969",
+      "title": "Ooh La La",
+      "artist": "Faces",
+      "album": "Ooh La La",
+      "albumId": "1031010809",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/c0/40/f9/c040f938-aa57-33c0-99e0-45be2ab9f350/603497886272.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "762172571",
+      "title": "On the Road Again",
+      "artist": "Willie Nelson",
+      "album": "Willie Nelson The Collection",
+      "albumId": "762172426",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/c2/59/f6/c259f6f5-292e-175a-ae54-d4e033c0c2f3/886444364133.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440800364",
+      "title": "Definition",
+      "artist": "Black Star",
+      "album": "Mos Def & Talib Kweli Are Black Star",
+      "albumId": "1440799801",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/7d/9d/b4/7d9db404-4032-4ed2-f5d8-8055bc637806/00008811289720.rgb.jpg/1200x1191bb.jpg"
+    },
+    {
+      "id": "1440953773",
+      "title": "Band On the Run",
+      "artist": "Paul McCartney & Wings",
+      "album": "Band on the Run (Archive Collection) [2010 Remaster]",
+      "albumId": "1440953772",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/f5/fe/a3/f5fea3f7-a858-b5ae-2c2e-b134c8b640b1/14CMGIM01182.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "885316220",
+      "title": "כל כך מוכר",
+      "artist": "Margalit Tzan׳ani",
+      "album": "מנטה",
+      "albumId": "885316150",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/66/55/57/6655571e-72ed-62d3-ad6e-6d030f931877/888831192763.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "382466776",
+      "title": "I Feel Like I'm Fixin to Die Rag",
+      "artist": "Country Joe McDonald",
+      "album": "Vietnam Experience",
+      "albumId": "382466773",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music/b1/05/0e/mzi.onlnugkd.jpg/620x620bb.jpg"
+    },
+    {
+      "id": "497756835",
+      "title": "Life Is so Good",
+      "artist": "John Denver",
+      "album": "John Denver",
+      "albumId": "497756830",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/eb/2f/da/eb2fda7c-4a32-9d95-fb91-2d07fb438bec/886443345874.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "7060447",
+      "title": "Here Comes Your Man",
+      "artist": "Pixies",
+      "album": "Doolittle",
+      "albumId": "7060469",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/34/07/72/34077276-8f67-c638-8c4f-73dd89d2dfab/5014436905025.png/1200x1200bb.jpg"
+    },
+    {
+      "id": "1485043450",
+      "title": "Self Esteem",
+      "artist": "The Offspring",
+      "album": "Smash (Remastered)",
+      "albumId": "1485043082",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/af/a3/6f/afa36ff7-01fd-f054-1e05-b257aff7cd20/0045778686865.png/1200x1200bb.jpg"
+    },
+    {
+      "id": "1469579721",
+      "title": "Mary Jane's Last Dance",
+      "artist": "Tom Petty & The Heartbreakers",
+      "album": "Greatest Hits",
+      "albumId": "1469579555",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/78/61/dd/7861dd44-f796-08ea-c8ff-7f8a12a86db1/15UMGIM69649.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1444004401",
+      "title": "Stuck In the Middle With You",
+      "artist": "Stealers Wheel",
+      "album": "Stealers Wheel",
+      "albumId": "1444004385",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/5f/53/ad/5f53ad8d-9892-da9a-e1d8-5426bb1b4a46/08UMGIM06125.rgb.jpg/1200x1152bb.jpg"
+    },
+    {
+      "id": "1443190721",
+      "title": "Barbara Ann",
+      "artist": "The Beach Boys",
+      "album": "Beach Boys' Party! (Mono & Stereo)",
+      "albumId": "1443190377",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/e7/3f/f3/e73ff39b-b9d7-2c10-e502-d99247d18c5e/00602547306418.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1436331811",
+      "title": "Sing It Back",
+      "artist": "Moloko",
+      "album": "I Am Not a Doctor",
+      "albumId": "1436331799",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/3b/bf/ad/3bbfad12-6db0-89c3-28a7-666ad9cd1f67/0886443963344.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "298160976",
+      "title": "Teenage Dirtbag",
+      "artist": "Wheatus",
+      "album": "Wheatus",
+      "albumId": "298160962",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/f7/c3/33/f7c333e4-b2b5-b49d-1406-f51bdac6a8aa/mzi.bllmhdje.jpg/600x600bb.jpg"
+    },
+    {
+      "id": "191451018",
+      "title": "Bullet In the Head",
+      "artist": "Rage Against the Machine",
+      "album": "Rage Against the Machine",
+      "albumId": "191450810",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/8e/08/bf/8e08bf66-8690-1ba7-affb-fe173c08623d/074645295923.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1571671153",
+      "title": "The Sidewinder Sleeps Tonite",
+      "artist": "R.E.M.",
+      "album": "Automatic For The People (2017 Remaster)",
+      "albumId": "1571670285",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/38/ae/cc/38aecc92-1d12-2437-5fb2-1cb78bce3afe/21CRGIM28685.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "619445364",
+      "title": "סתם",
+      "artist": "Teapacks",
+      "album": "נשיקה לדוד",
+      "albumId": "619443212",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music127/v4/89/c9/b6/89c9b642-00a3-3920-a39f-46c1ffbd82ed/887845849878.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1445871108",
+      "title": "Mamma Mia (Spanish Version)",
+      "artist": "ABBA",
+      "album": "Gracias por la Música (Deluxe Edition)",
+      "albumId": "1445870793",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/7e/b0/c8/7eb0c8eb-20f7-644a-a035-ea4f47030a78/00602547059383.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1632411801",
+      "title": "Supersonic Rocket Ship (2022 Remaster)",
+      "artist": "The Kinks",
+      "album": "Everybody's in Show-Biz (Deluxe) [2022 Remaster]",
+      "albumId": "1632411613",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/c9/0d/3f/c90d3fa3-2d52-4983-39bd-93ec567ba8ff/4050538823646.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1702071018",
+      "title": "Basket Case",
+      "artist": "Green Day",
+      "album": "Dookie (30th Anniversary Deluxe Edition)",
+      "albumId": "1702070738",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/05/05/d5/0505d56b-4ba9-41a8-a09a-20a0206e1dcc/093624850212_01.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440743132",
+      "title": "The Seeker",
+      "artist": "The Who",
+      "album": "Meaty, Beaty, Big and Bouncy",
+      "albumId": "1440743116",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/09/55/e3/0955e368-7355-e803-4317-845612e09351/12UMGIM50945.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "393789247",
+      "title": "I Wanna Be Your Dog",
+      "artist": "The Stooges",
+      "album": "The Stooges",
+      "albumId": "393789238",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/41/19/3b/41193bb2-ffc4-043f-4ddd-128c272d8f82/mzi.qimpmkxb.jpg/1200x1186bb.jpg"
+    },
+    {
+      "id": "721224378",
+      "title": "Body Movin'",
+      "artist": "Beastie Boys",
+      "album": "Hello Nasty (Deluxe Version) [Remastered]",
+      "albumId": "721224205",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/aa/95/31/aa953192-7552-3a1d-d87f-e724717f3947/13UABIM07217.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1666657165",
+      "title": "All Those Years Ago (2004 Remaster)",
+      "artist": "George Harrison",
+      "album": "Somewhere in England",
+      "albumId": "1666657159",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/8f/0d/5d/8f0d5d55-6ec1-16db-13d1-8ced11ac3ea0/5099951336752.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1456799514",
+      "title": "Rocky Mountain High",
+      "artist": "John Denver",
+      "album": "Rocky Mountain High",
+      "albumId": "1456799513",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/50/ea/c9/50eac997-ed30-4a79-08a3-fb416f5413d2/886447612101.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1440717883",
+      "title": "Ruby Tuesday",
+      "artist": "The Rolling Stones",
+      "album": "Between the Buttons",
+      "albumId": "1440717458",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/a8/48/68/a84868ac-967d-4947-5105-0b2e3afd3cdb/00018771895220.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1453877389",
+      "title": "Like a Sad Song",
+      "artist": "John Denver",
+      "album": "Spirit",
+      "albumId": "1453877171",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/03/fd/49/03fd49b0-5503-f6eb-553c-73a7cb220f76/886447553169.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1443477501",
+      "title": "Down By the River",
+      "artist": "Buddy Miles",
+      "album": "Them Changes",
+      "albumId": "1443477015",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/dd/b1/e0/ddb1e0bf-0d7f-05fb-a6c4-20b05f6ab062/00044006369327.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1469585322",
+      "title": "Melissa",
+      "artist": "The Allman Brothers Band",
+      "album": "Eat a Peach",
+      "albumId": "1469584912",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/9c/b5/33/9cb53320-8975-23a9-5045-28c412a5814a/16UMGIM14647.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1452397037",
+      "title": "The Shape I'm In (Remastered)",
+      "artist": "The Band",
+      "album": "Stage Fright (Remastered)",
+      "albumId": "1452397020",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/c0/2b/13/c02b1369-8a4d-dce0-8d6b-9165545d5084/00602547246493.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "724696607",
+      "title": "It Makes No Difference",
+      "artist": "The Band",
+      "album": "Northern Lights-Southern Cross (Expanded Edition)",
+      "albumId": "724696349",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music6/v4/b6/34/12/b634120a-8a08-562d-e42a-f1257eca0c8a/00724352539451.tif/1200x1197bb.jpg"
+    },
+    {
+      "id": "1440846607",
+      "title": "Across the Great Divide",
+      "artist": "The Band",
+      "album": "The Band (Remastered)",
+      "albumId": "1440846597",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/ca/b2/06/cab20688-46b7-e7be-c64a-dbbeeb2fc864/15UMGIM06558.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1443890867",
+      "title": "Joy to the World",
+      "artist": "Three Dog Night",
+      "album": "Naturally",
+      "albumId": "1443890529",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/44/d5/28/44d528cf-bb8f-263b-e76e-537a40838e4b/00076743135521.rgb.jpg/1200x1160bb.jpg"
+    },
+    {
+      "id": "1474082358",
+      "title": "למה לא",
+      "artist": "Sherri",
+      "album": "Sherry - Greatest Hits",
+      "albumId": "1474082104",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music123/v4/e5/6a/b1/e56ab195-5d4e-b3f6-b4a6-7bcdb5cc522b/194491123161.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1443433530",
+      "title": "If You Wanna Get to Heaven",
+      "artist": "The Ozark Mountain Daredevils",
+      "album": "The Ozark Mountain Daredevils",
+      "albumId": "1443433187",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music118/v4/5e/db/62/5edb62ac-8cad-c579-cade-ca5a34c689c2/00075021311022.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1442937508",
+      "title": "Long Time Gone",
+      "artist": "Richard Betts",
+      "album": "Highway Call",
+      "albumId": "1442937443",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c6/8b/b1/c68bb1c7-ceb3-de00-2aa7-3fd42021120b/00042283511521.rgb.jpg/1200x1172bb.jpg"
+    },
+    {
+      "id": "1443262551",
+      "title": "Don't Let Anyone Bring You Down (Perfect Angel Version)",
+      "artist": "Minnie Riperton",
+      "album": "Perfect Angel (Deluxe Edition)",
+      "albumId": "1443261372",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/e0/07/7f/e0077fd5-8a65-2570-2421-6e5e08a51241/17UM1IM31801.rgb.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1442713011",
+      "title": "Poupée de cire poupée de son",
+      "artist": "France Gall",
+      "album": "Lounge Legends: France Gall",
+      "albumId": "1442713002",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music128/v4/8b/17/d8/8b17d8ef-c1bf-898a-3948-2b481194f455/00731458972723.rgb.jpg/1200x1190bb.jpg"
+    },
+    {
+      "id": "1065975049",
+      "title": "Matilda Mother",
+      "artist": "Pink Floyd",
+      "album": "The Piper at the Gates of Dawn",
+      "albumId": "1065975041",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/e7/b4/d3/e7b4d3e0-66d5-0cea-4054-47f3e8bae778/886445635799.jpg/1200x1200bb.jpg"
+    },
+    {
+      "id": "1065975359",
+      "title": "Stay",
+      "artist": "Pink Floyd",
+      "album": "Obscured By Clouds",
+      "albumId": "1065975350",
+      "image": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/6e/ca/ef/6ecaef2b-b73c-f437-fa4e-9b44b53a7993/886445635928.jpg/1200x1200bb.jpg"
+    }
+  ]
+}

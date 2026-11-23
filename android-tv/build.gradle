@@ -6,14 +6,14 @@ android {
         applicationId 'com.noamsadi.albumcrt'
         minSdk 23
         targetSdk 35
-        versionCode 5
-        versionName '0.5'
+        versionCode 6
+        versionName '0.6'
     }
     sourceSets.main.assets.srcDirs += layout.buildDirectory.dir('generated/displayAssets').get().asFile
 }
 dependencies { implementation 'androidx.webkit:webkit:1.12.1' }
 tasks.register('prepareDisplayAssets', Sync) {
-    from(rootProject.file('..')) { include 'albums-wiim.js', 'radio-artwork.js', 'applemusic-3.csv', 'demo.js', 'marquee.js', 'firebase-config.js', 'fonts.css' }
+    from(rootProject.file('..')) { include 'albums-wiim.js', 'radio-artwork.js', 'applemusic-3.csv', 'random-artwork.json', 'demo.js', 'marquee.js', 'firebase-config.js', 'fonts.css' }
     into layout.buildDirectory.dir('generated/displayAssets')
     doLast {
         def f = layout.buildDirectory.file('generated/displayAssets/albums-wiim.js').get().asFile
