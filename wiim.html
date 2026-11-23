@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TV Display • WiiM / Kan 88</title>
+    <link rel="stylesheet" href="fonts.css">
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #stage {
+            width: 100vw;
+            height: 100vh;
+            opacity: 1;
+            transition: opacity 0.5s ease-in-out;
+            will-change: opacity;
+        }
+    </style>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+</head>
+<body>
+    <div id="stage"></div>
+
+    <script type="module">
+        import * as Albums  from './albums-wiim.js';
+        import * as Demo    from './demo.js';
+        import * as Marquee from './marquee.js';
+
+        import { initializeApp }                     from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js';
+        import { getDatabase, ref, onValue }         from 'https://www.gstatic.com/firebasejs/11.3.1/firebase-database.js';
+        import { firebaseConfig }                    from './firebase-config.js';
+
+        const app = initializeApp(firebaseConfig);
+        const db  = getDatabase(app);
+
+        const stage = document.getElementById('stage');
+        let currentModule = null;
+        let currentMode   = null;
+        let isTransitioning = false;
+        let lastSwitchVideo = null;
+
+        function loadModule(module, config) {
+            const isSameModule = currentModule === module;
+
+            // Config-only update — no visual transition needed
+            if (isSameModule && typeof module.updateConfig === 'function') {
+                module.updateConfig(config);
+                return;
+            }
+
+            if (isTransitioning || isSameModule) return;
+
+            // First load (instant)
+            if (!currentModule) {
+                stage.innerHTML = '';
+                module.init(stage, config);
+                currentModule = module;
+                return;
+            }
+
+            // Fade out → swap → fade in
+            isTransitioning = true;
+            stage.style.opacity = '0';
+
+            setTimeout(() => {
+                if (currentModule && currentModule.cleanup) currentModule.cleanup();
+                stage.innerHTML = '';
+
+                module.init(stage, config);
+                currentModule = module;
+
+                requestAnimationFrame(() => {
+                    stage.style.opacity = '1';
+                    setTimeout(() => { isTransitioning = false; }, 1000);
+                });
+            }, 1000);
+        }
+
+        // Start immediately in Albums so the screen is never black while Firebase loads
+        loadModule(Albums);
+        currentMode = 'albums';
+
+        // ── Firebase listener ─────────────────────────────────────
+        onValue(ref(db, 'settings'), snap => {
+            const s    = snap.val() || {};
+            const mode = s.mode || 'albums';
+
+            // ── Demo config ───────────────────────────────────────
+            const demo    = s.demo || {};
+            const demoCfg = {
+                collection:        demo.collection        || 'demolitionkitchenvideo',
+                horizontalStretch: demo.horizontalStretch ?? 1.0,
+            };
+
+            // ── Marquee config ────────────────────────────────────
+            const mq    = s.marquee || {};
+            const mqCfg = {
+                message:          mq.message          ?? 'Hello',
+                direction:        mq.direction        ?? 'left',
+                textSize:         mq.textSize         ?? 80,
+                gap:              mq.gap              ?? 200,
+                speed:            mq.speed            ?? 100,
+                textColor:        mq.textColor        ?? '#ffffff',
+                bgColor:          mq.bgColor          ?? '#000000',
+                horizontalStretch: mq.horizontalStretch ?? 1.0,
+                fontFamily:       mq.fontFamily       ?? 'SF Pro Display',
+                fontWeight:       mq.fontWeight       ?? 400,
+            };
+
+            // ── Dispatch ──────────────────────────────────────────
+            if (mode === 'demo') {
+                if (currentMode === 'demo') {
+                    Demo.updateConfig(demoCfg);
+                } else {
+                    loadModule(Demo, demoCfg);
+                }
+
+                const sw = demo.switchVideo ?? null;
+                if (lastSwitchVideo !== null && sw !== lastSwitchVideo && currentMode === 'demo') {
+                    Demo.nextVideo();
+                }
+                lastSwitchVideo = sw;
+
+            } else if (mode === 'marquee') {
+                if (currentMode === 'marquee') {
+                    Marquee.updateConfig(mqCfg);
+                } else {
+                    loadModule(Marquee, mqCfg);
+                }
+
+            } else {
+                loadModule(Albums);
+            }
+
+            currentMode = mode;
+        });
+
+        console.log('[TV] System started. Listening to Firebase.');
+    </script>
+</body>
+</html>
