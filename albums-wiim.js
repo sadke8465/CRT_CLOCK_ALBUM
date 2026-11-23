@@ -39,6 +39,7 @@ let epoch = 0, radioCache = null, radioCheckedAt = 0, radioAttemptedKey = '', ra
 
 let state = {
     startupDone: false,
+    hasArtwork: false,
     currentMode: 'STARTUP', 
     csvTrackList: [],
     csvIndex: 0,
@@ -57,7 +58,7 @@ export async function init(container) {
     console.log("[Albums] Initializing...");
     const session = ++epoch;
     resetState();
-    radioCache = null; radioCheckedAt = 0; radioAttemptedKey = ''; radioArtwork = ''; liveArtworkKey = ''; liveArtworkURL = ''; lastFailureAt = 0;
+    radioInGap = false; radioCache = null; radioCheckedAt = 0; radioAttemptedKey = ''; radioArtwork = ''; liveArtworkKey = ''; liveArtworkURL = ''; lastFailureAt = 0;
     injectStyles();
 
     container.innerHTML = `
@@ -76,9 +77,13 @@ export async function init(container) {
     requestWakeLock();
     if (forcedRadio) {
         container.insertAdjacentHTML('beforeend', '<div id="radio-message" style="position:absolute;inset:0;display:grid;place-items:center;color:white;font:24px system-ui;text-align:center;pointer-events:none;z-index:20">KAN 88 — Connecting…</div>');
-    } else await loadCSV(session);
+    }
+    await loadCSV(session);
     if (session !== epoch) return;
-    if(forcedRadio){try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&Date.now()-last.time<10*60*1000&&last.image)showLive('radio|cached',last.image,true);}catch{}}
+    if(forcedRadio){
+        try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&last.image)showLive('radio|cached',last.image,true);}catch{}
+        if(!state.isTransitioning)startCsvMode();
+    }
     await checkLive(session);
 }
 
@@ -94,6 +99,7 @@ export function cleanup() {
 function resetState() {
     state = {
         startupDone: false,
+        hasArtwork: false,
         currentMode: 'STARTUP', 
         csvTrackList: [],
         csvIndex: 0,
@@ -176,6 +182,8 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
                 if (session !== epoch) return;
                 imgEl.style.opacity = '1';
                 bgEl.style.opacity = '1';
+                state.hasArtwork=true;
+                radioMessage('');
 
                 setTimeout(() => { 
                     if (session !== epoch) return;
@@ -191,7 +199,7 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
         if (session !== epoch) return;
         state.isTransitioning = false;
         liveArtworkKey = ''; liveArtworkURL = '';
-        if (forcedRadio) { radioMessage('KAN 88 — Artwork unavailable; retrying'); }
+        if (forcedRadio && !state.hasArtwork) { if(state.currentMode==='LIVE')startCsvMode();else if(state.currentMode==='CSV')setTimeout(()=>{if(session===epoch&&state.currentMode==='CSV')triggerCsvUpdate();},1000); }
         else if (!state.displayedLiveTrack && state.currentMode==='LIVE') startCsvMode();
         console.warn("Failed to load image:", imageUrl);
     };
@@ -251,14 +259,14 @@ function showLive(key,url,direct=false) {
     enterLive();
     state.liveTrackStartTime=Date.now();
     state.liveZoomTriggered=false;
-    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');},direct);
+    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');if(key.startsWith('radio|')&&key!=='radio|cached'){try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:url,time:Date.now()}));}catch{}}},direct);
 }
 function radioMessage(message) {
     const node=document.getElementById('radio-message');
-    if(node){node.textContent=message;node.style.display=message?'grid':'none';}
+    if(node){const visible=message&&!state.hasArtwork;node.textContent=visible?message:'';node.style.display=visible?'grid':'none';}
 }
 function enterIdle() {
-    if(forcedRadio){if(!state.displayedLiveTrack)radioMessage('KAN 88 — Waiting for a live song');return;}
+    if(forcedRadio){if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;}
     state.displayedLiveTrack=null;
     liveArtworkKey=''; liveArtworkURL='';
     if (!state.isTransitioning) startCsvMode();
@@ -269,7 +277,7 @@ async function radioSource(session) {
         radioCheckedAt=now;
         let response;
         try { response=await getJSON('https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4',10000); }
-        catch(e){radioCheckedAt=0;throw Error('Kan metadata: '+e.message);}
+        catch(e){radioCheckedAt=0;radioInGap=true;console.warn('Kan metadata unavailable',e);if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;}
         if(session!==epoch)return;
         radioCache=response;
     }
@@ -279,7 +287,7 @@ async function radioSource(session) {
     if (!title || !artists.length || !Number.isFinite(end) || !Number.isFinite(start) || now>end+15000 || now<start-60000) {
         radioInGap=true;
         if (state.currentMode==='LIVE' && (state.displayedLiveTrack?.startsWith('radio|') || state.isTransitioning)) return;
-        if(forcedRadio)radioMessage('KAN 88 — Waiting for station metadata • retrying');else enterIdle();return;
+        if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;
     }
     radioInGap=false;
     const key='radio|'+title+'|'+artists.join('|')+'|'+start;
@@ -290,11 +298,11 @@ async function radioSource(session) {
         if(session!==epoch)return;
         radioAttemptedKey=key;
         radioArtwork=match?.image||'';
-        if(radioArtwork){try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:radioArtwork,time:Date.now()}));}catch{}}
+
     }
     if(session!==epoch)return;
     if(radioArtwork)showLive(key,radioArtwork,true);
-    else if(!state.displayedLiveTrack?.startsWith('radio|')) { if(forcedRadio)radioMessage('KAN 88 — No matching cover for '+title+' — '+artists.join(', '));else enterIdle(); }
+    else if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();
 }
 async function checkLive(session) {
     if(session!==epoch)return;
@@ -323,7 +331,7 @@ async function checkLive(session) {
         if(session!==epoch)return;
         console.warn('[Albums] Playback source unavailable',err);
         if(!lastFailureAt)lastFailureAt=Date.now();
-        if(forcedRadio) {if(!state.displayedLiveTrack)radioMessage('KAN 88 — '+err.message+' • retrying');}
+        if(forcedRadio) {if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();}
         else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
         delay=5000;
     }finally{if(session===epoch)intervals.live=setTimeout(()=>checkLive(session),delay);}
