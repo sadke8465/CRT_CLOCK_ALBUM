@@ -1,3 +1,4 @@
+import { resolveArtwork } from './radio-artwork.js?v=1';
 /**
  * ALBUMS MODULE (Full-Screen Immersion Edition with ML Face Detection)
  */
@@ -270,13 +271,10 @@ async function radioSource(session) {
     }
     const key='radio|'+title+'|'+artists.join('|')+'|'+start;
     if(radioAttemptedKey!==key){
-        const q=new URLSearchParams({term:artists[0]+' '+title,entity:'song',country:CONFIG.STORE_COUNTRY,limit:'15'});
-        const data=await getJSON('https://itunes.apple.com/search?'+q,10000);
+        const match=await resolveArtwork(title,artists);
         if(session!==epoch)return;
-        const matches=(data.results||[]).filter(r=>norm(r.trackName)===norm(title)&&artists.some(a=>norm(r.artistName)===norm(a))&&r.artworkUrl100);
-        matches.sort((a,b)=>Number(/best of|greatest hits|collection|anthology|compilation/i.test(a.collectionName||''))-Number(/best of|greatest hits|collection|anthology|compilation/i.test(b.collectionName||'')));
         radioAttemptedKey=key;
-        radioArtwork=matches[0]?.artworkUrl100.replace('100x100bb','1200x1200bb')||'';
+        radioArtwork=match?.image||'';
     }
     if(session!==epoch)return;
     if(radioArtwork)showLive(key,radioArtwork,true);
