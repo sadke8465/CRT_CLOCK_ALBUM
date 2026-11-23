@@ -26,7 +26,8 @@ const CONFIG = {
     LIVE_POLL_INTERVAL: 1000,
     RADIO_POLL_INTERVAL: 10000,
     RADIO_GAP_POLL_INTERVAL: 5000,
-    LIVE_FAILURE_GRACE_MS: 5000,
+    LIVE_FAILURE_GRACE_MS: 10000,
+    IDLE_GRACE_MS: 10000,
 
     // ML Model URL (using a fast CDN for the weights)
     MODEL_URL: 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/'
@@ -35,6 +36,7 @@ const CONFIG = {
 // --- STATE MANAGEMENT ---
 let intervals = { live: null, csv: null };
 let radioInGap = false;
+let idleSince=0, hadLivePlayback=false;
 let albumSource='auto', radioSelected=false, lastRadioCover='', lastRadioKey='', radioRetryAt=0, radioLookupKey='', radioWantedKey='';
 let epoch = 0, radioCache = null, radioCheckedAt = 0, radioAttemptedKey = '', radioArtwork = '', liveArtworkKey = '', liveArtworkURL = '', lastFailureAt = 0;
 
@@ -59,6 +61,7 @@ export async function init(container, config={}) {
     console.log("[Albums] Initializing...");
     const session = ++epoch;
     resetState();
+    idleSince=0;hadLivePlayback=false;
     albumSource=['auto','kan88','random'].includes(config?.source)?config.source:(params.get('source')==='kan88'?'kan88':'auto');
     radioSelected=albumSource==='kan88';lastRadioCover='';lastRadioKey='';radioRetryAt=0;radioLookupKey='';radioWantedKey='';
     try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&last.image){lastRadioCover=last.image;lastRadioKey=last.key||'radio|cached';}}catch{}
@@ -141,7 +144,7 @@ async function requestWakeLock() {
 }
 
 // --- VISUAL TRANSITION ENGINE ---
-function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
+function performVisualTransition(imageUrl, onSuccessCallback, direct = false, valid = () => true) {
     const session = epoch;
     if (state.isTransitioning) return false; 
     state.isTransitioning = true;
@@ -151,6 +154,7 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
 
     loader.onload = () => {
         if (session !== epoch) return;
+        if(!valid()){state.isTransitioning=false;return;}
         const imgEl = document.getElementById('album-art');
         const bgEl = document.getElementById('bg-layer');
         const wrapperEl = document.getElementById('art-wrapper');
@@ -164,6 +168,7 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
         // 2. Wait for the screen to go completely dark
         setTimeout(() => {
             if (session !== epoch || !document.getElementById('album-art')) return;
+            if(!valid()){imgEl.style.opacity=state.hasArtwork?'1':'0';bgEl.style.opacity=state.hasArtwork?'1':'0';state.isTransitioning=false;return;}
 
             // 3. Stop the animation and reset positioning silently in the dark
             stopSmartAnimation(); 
@@ -205,7 +210,7 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
         if(radioSelected&&imageUrl===lastRadioCover){lastRadioCover='';lastRadioKey='';try{localStorage.removeItem('crt-kan88-last');}catch{}}
         if(radioSelected&&imageUrl===radioArtwork){radioArtwork='';radioRetryAt=Date.now()+30000;}
         if (radioSelected && !state.hasArtwork) { if(state.currentMode==='LIVE')startCsvMode();else if(state.currentMode==='CSV')setTimeout(()=>{if(session===epoch&&state.currentMode==='CSV')triggerCsvUpdate();},1000); }
-        else if (!state.displayedLiveTrack && state.currentMode==='LIVE') startCsvMode();
+        else if (!state.hasArtwork && !hadLivePlayback && state.currentMode==='LIVE') startCsvMode();
         console.warn("Failed to load image:", imageUrl);
     };
 
@@ -260,9 +265,11 @@ function enterLive() {
     state.currentMode='LIVE';
 }
 function showLive(key,url,direct=false) {
-    if (!url || state.isTransitioning) return;
-    if (state.currentMode==='LIVE' && state.displayedLiveTrack===key) { checkSmartZoomTimer(); return; }
+    if (!url) return;
+    // Stop fallback immediately on confirmed playback, even if a random cover is loading.
     enterLive();
+    if (state.isTransitioning) return;
+    if (state.currentMode==='LIVE' && state.displayedLiveTrack===key) { checkSmartZoomTimer(); return; }
     state.liveTrackStartTime=Date.now();
     state.liveZoomTriggered=false;
     performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');if(key.startsWith('radio|')&&key!=='radio|cached'){lastRadioCover=url;lastRadioKey=key;try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:url,key,time:Date.now()}));}catch{}}},direct);
@@ -278,8 +285,16 @@ function holdRadioArtwork() {
     if(state.hasArtwork){enterLive();return;}
     startCsvMode();
 }
+function markPlaybackActive(){idleSince=0;hadLivePlayback=true;}
+function handlePlaybackGap(){
+    if(!idleSince)idleSince=Date.now();
+    // AirPlay briefly reports missing/paused metadata between tracks.
+    if(hadLivePlayback&&Date.now()-idleSince<CONFIG.IDLE_GRACE_MS)return;
+    enterIdle();
+}
 function enterIdle() {
     if(isForcedRadio()){holdRadioArtwork();return;}
+    if(state.isTransitioning)return;
     radioSelected=false;radioWantedKey='';
     state.displayedLiveTrack=null;
     liveArtworkKey=''; liveArtworkURL='';
@@ -333,8 +348,9 @@ async function checkLive(session) {
             const [status,data]=await Promise.all(['getPlayerStatus','getMetaInfo'].map(c=>getJSON(wiimBase+'/httpapi.asp?command='+c)));
             if(session!==epoch)return;
             const meta=data.metaData||{},mode=classifyPlayback(status,meta);
-            if(mode==='radio')await radioSource(session);
+            if(mode==='radio'){markPlaybackActive();await radioSource(session);}
             else if(mode==='music'){
+                markPlaybackActive();enterLive();
                 radioSelected=false;radioWantedKey='';
                 const key='music|'+[meta.artist,meta.album,meta.title].join('|');
                 if(liveArtworkKey!==key){
@@ -344,7 +360,7 @@ async function checkLive(session) {
                     liveArtworkKey=key;liveArtworkURL=url.href;
                 }
                 showLive(key,liveArtworkURL,true);
-            } else enterIdle();
+            } else handlePlaybackGap();
         }
         lastFailureAt=0;
     }catch(err){
@@ -352,7 +368,7 @@ async function checkLive(session) {
         console.warn('[Albums] Playback source unavailable',err);
         if(!lastFailureAt)lastFailureAt=Date.now();
         if(isForcedRadio()||radioSelected) {holdRadioArtwork();}
-        else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
+        else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)handlePlaybackGap();
         delay=5000;
     }finally{if(session===epoch)intervals.live=setTimeout(()=>checkLive(session),delay);}
 }
@@ -633,7 +649,7 @@ function triggerCsvUpdate() {
     const session=epoch;
     fetchItunesById(track.id, (url) => {
         if(session!==epoch || state.currentMode!=='CSV')return;
-        if (url) performVisualTransition(url);
+        if (url) performVisualTransition(url,null,false,()=>state.currentMode==='CSV');
         else {
              state.csvIndex = (state.csvIndex + 1) % state.csvTrackList.length;
              setTimeout(()=>{if(session===epoch)triggerCsvUpdate();}, 1000); 
