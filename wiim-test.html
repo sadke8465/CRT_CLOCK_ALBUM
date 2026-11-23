@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CRT • WiiM connection test</title>
-<style>body{background:#101010;color:#eee;font:18px system-ui;margin:24px}main{max-width:760px;margin:auto}h1{font-size:28px}input,button{font:inherit;padding:12px;border:1px solid #666;border-radius:8px;background:#242424;color:white}button{cursor:pointer}img{width:min(50vw,280px);display:block;margin:12px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:#bbb}.status{color:#9de5b5}label{display:block;margin-bottom:8px}</style></head>
-<body><main><h1>WiiM connection test</h1><p>Read-only local playback diagnostic. Nothing is uploaded. Start music before connecting.</p><label for="host">WiiM local IPv4 address</label><input id="host" inputmode="decimal" placeholder="192.168.1.108"><button id="start">Connect</button> <button id="stop">Stop</button><p class="status" id="result">Not connected</p><p id="details"></p><img id="art" alt="Current WiiM artwork" hidden><p id="image-status"></p><pre id="raw"></pre></main>
+<style>body{background:#101010;color:#eee;font:18px system-ui;margin:24px}main{max-width:760px;margin:auto}h1{font-size:28px}input,button{font:inherit;padding:12px;border:1px solid #666;border-radius:8px;background:#242424;color:white}button{cursor:pointer}[hidden]{display:none!important}img{width:min(50vw,280px);display:block;margin:12px 0;border-radius:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;color:#bbb}.status{color:#9de5b5}label{display:block;margin-bottom:8px}</style></head>
+<body><main><h1>WiiM connection test</h1><p>Automatic local playback diagnostic • v2 • Nothing is uploaded.</p><div id="controls"><label for="host">WiiM local IPv4 address</label><input id="host" inputmode="decimal" placeholder="192.168.1.108"><button id="start">Connect</button> <button id="stop">Stop</button></div><p class="status" id="result">Not connected</p><p id="details"></p><img id="art" alt="Current WiiM artwork" hidden><p id="image-status"></p><pre id="raw"></pre></main>
 <script>
 const el=id=>document.getElementById(id);
 el('host').value=new URLSearchParams(location.search).get('ip')||'';
@@ -40,4 +40,5 @@ el('art').onload=()=>{el('image-status').textContent='Artwork loaded';};
 el('art').onerror=()=>{el('image-status').textContent='Artwork blocked or unavailable';previous='';};
 el('start').onclick=()=>{stop();const host=el('host').value.trim();if(!localIPv4(host)){el('result').textContent='Enter a valid private IPv4 address';return;}running=true;el('result').textContent='Connecting…';poll(host,serial);};
 el('stop').onclick=()=>{stop();el('result').textContent='Stopped';};
+if(localIPv4(el('host').value)){el('controls').hidden=true;el('start').click();}
 </script></body></html>
