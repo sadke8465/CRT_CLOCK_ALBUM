@@ -17,6 +17,13 @@ import android.widget.TextView;
 import androidx.webkit.WebViewAssetLoader;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.SSLSession;
+import java.security.KeyStore;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.net.URL;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -28,6 +35,8 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private static final String ORIGIN = "appassets.androidplatform.net";
     private static final String WIIM = "https://192.168.1.108";
+    private X509Certificate wiimCertificate;
+    private SSLSocketFactory wiimSocketFactory;
     private WebView web;
     private TextView diagnostic;
     private volatile boolean connected = false;
@@ -52,6 +61,7 @@ public final class MainActivity extends Activity {
         dp.bottomMargin=32;
         root.addView(diagnostic,dp);
         setContentView(root);
+        try { configureWiiMCertificate(); } catch(Exception e) { report("WiiM trust configuration failed"); }
 
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -93,10 +103,40 @@ public final class MainActivity extends Activity {
     private void report(String message) {
         runOnUiThread(()->{if(isFinishing())return;diagnostic.setText(message);diagnostic.setVisibility(message.isEmpty()?View.GONE:View.VISIBLE);});
     }
+    // The user explicitly supplied this public certificate from their own WiiM.
+    // This trust store is used solely for the fixed local WiiM endpoint.
+    private void configureWiiMCertificate() throws Exception {
+        try (InputStream in=getResources().openRawResource(R.raw.wiim_certificate)) {
+            wiimCertificate=(X509Certificate)CertificateFactory.getInstance("X.509").generateCertificate(in);
+        }
+        wiimCertificate.checkValidity();
+        KeyStore store=KeyStore.getInstance(KeyStore.getDefaultType());
+        store.load(null,null);
+        store.setCertificateEntry("wiim",wiimCertificate);
+        TrustManagerFactory tmf=TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(store);
+        SSLContext context=SSLContext.getInstance("TLS");
+        context.init(null,tmf.getTrustManagers(),null);
+        wiimSocketFactory=context.getSocketFactory();
+    }
+    private boolean verifyWiiMIdentity(String hostname, SSLSession session) {
+        // The certificate's DNS name is www.linkplay.com rather than its LAN IP.
+        // For this fixed IP only, identity is the exact user-supplied certificate.
+        if (!"192.168.1.108".equals(hostname) || wiimCertificate==null) return false;
+        try {
+            java.security.cert.Certificate[] chain=session.getPeerCertificates();
+            if(chain.length==0 || !wiimCertificate.equals(chain[0]))return false;
+            wiimCertificate.checkValidity();
+            return true;
+        } catch(Exception e){return false;}
+    }
     private WebResourceResponse wiim(String path, boolean image) {
         HttpsURLConnection conn=null;
         try {
+            if(wiimSocketFactory==null)throw new SSLHandshakeException("WiiM trust not configured");
             conn=(HttpsURLConnection)new URL(WIIM+path).openConnection();
+            conn.setSSLSocketFactory(wiimSocketFactory);
+            conn.setHostnameVerifier(this::verifyWiiMIdentity);
             conn.setConnectTimeout(3000);conn.setReadTimeout(4000);
             conn.setInstanceFollowRedirects(false);
             conn.setRequestMethod("GET");
@@ -119,7 +159,7 @@ public final class MainActivity extends Activity {
             connected=true;report("");
             return response("application/json","UTF-8",obj.toString().getBytes(StandardCharsets.UTF_8));
         } catch(SSLHandshakeException e) {
-            if(!image){connected=false;report("WiiM certificate not trusted — setup needed");}
+            if(!image){connected=false;report("WiiM certificate mismatch — check device");}
             return error(503,"WiiM certificate validation failed");
         } catch(Exception e) {
             if(!image){connected=false;report("WiiM connection unavailable — retrying");}
