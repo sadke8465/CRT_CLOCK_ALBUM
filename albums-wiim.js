@@ -250,9 +250,15 @@ function privateIP(v) {
 const wiimBase = privateIP(host) ? 'https://' + host : null;
 const clean = v => typeof v === 'string' && !/^(unknown?|unknown|n\/a|null)$/i.test(v.trim()) ? v.trim() : '';
 const norm = v => String(v || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+function isKan88Station(value) {
+    // TuneIn has separate English and bilingual listings; remove spacing,
+    // punctuation and bidirectional formatting without matching unrelated stations.
+    const name=clean(value).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+    return ['radio88fm','kan88','כאן88','88כאן','kan88כאן88','kan8888כאן','כאן88kan88','88כאןkan88'].includes(name);
+}
 function classifyPlayback(status, meta) {
     if (status.status !== 'play') return 'idle';
-    if (/^(radio\s*88\s*fm|kan\s*88|כאן\s*88)$/i.test(clean(meta.title))) return 'radio';
+    if (isKan88Station(meta.title) || (!clean(meta.title) && (isKan88Station(meta.artist)||isKan88Station(meta.album)))) return 'radio';
     if(String(status.mode)!=='1')return 'idle';
     return clean(meta.title) && clean(meta.artist) && clean(meta.album) ? 'music' : 'idle';
 }
