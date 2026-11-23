@@ -71,7 +71,9 @@ export async function init(container) {
 
     loadFaceModels();
     requestWakeLock();
-    await loadCSV(session);
+    if (forcedRadio) {
+        container.insertAdjacentHTML('beforeend', '<div id="radio-message" style="position:absolute;inset:0;display:grid;place-items:center;color:white;font:24px system-ui;text-align:center;pointer-events:none;z-index:20">KAN 88 — Connecting…</div>');
+    } else await loadCSV(session);
     if (session !== epoch) return;
     await checkLive(session);
 }
@@ -185,7 +187,8 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
         if (session !== epoch) return;
         state.isTransitioning = false;
         liveArtworkKey = ''; liveArtworkURL = '';
-        if (!state.displayedLiveTrack && state.currentMode==='LIVE') startCsvMode();
+        if (forcedRadio) { radioMessage('KAN 88 — Artwork unavailable; retrying'); }
+        else if (!state.displayedLiveTrack && state.currentMode==='LIVE') startCsvMode();
         console.warn("Failed to load image:", imageUrl);
     };
 
@@ -238,9 +241,14 @@ function showLive(key,url,direct=false) {
     enterLive();
     state.liveTrackStartTime=Date.now();
     state.liveZoomTriggered=false;
-    performVisualTransition(url,()=>{state.displayedLiveTrack=key;},direct);
+    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');},direct);
+}
+function radioMessage(message) {
+    const node=document.getElementById('radio-message');
+    if(node){node.textContent=message;node.style.display=message?'grid':'none';}
 }
 function enterIdle() {
+    if(forcedRadio){if(!state.displayedLiveTrack)radioMessage('KAN 88 — Waiting for a live song');return;}
     state.displayedLiveTrack=null;
     liveArtworkKey=''; liveArtworkURL='';
     if (!state.isTransitioning) startCsvMode();
@@ -271,8 +279,8 @@ async function radioSource(session) {
         radioArtwork=matches[0]?.artworkUrl100.replace('100x100bb','1200x1200bb')||'';
     }
     if(session!==epoch)return;
-    if(radioArtwork)showLive(key,radioArtwork);
-    else if(!state.displayedLiveTrack?.startsWith('radio|'))enterIdle();
+    if(radioArtwork)showLive(key,radioArtwork,true);
+    else if(!state.displayedLiveTrack?.startsWith('radio|')) { if(forcedRadio)radioMessage('KAN 88 — No matching cover for '+title+' — '+artists.join(', '));else enterIdle(); }
 }
 async function checkLive(session) {
     if(session!==epoch)return;
@@ -301,7 +309,8 @@ async function checkLive(session) {
         if(session!==epoch)return;
         console.warn('[Albums] Playback source unavailable',err);
         if(!lastFailureAt)lastFailureAt=Date.now();
-        if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
+        if(forcedRadio) {if(!state.displayedLiveTrack)radioMessage('KAN 88 — Connection failed: '+err.message);}
+        else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
         delay=5000;
     }finally{if(session===epoch)intervals.live=setTimeout(()=>checkLive(session),delay);}
 }
