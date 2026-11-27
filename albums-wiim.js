@@ -1,4 +1,4 @@
-import { resolveArtwork } from './radio-artwork.js?v=2';
+import { analyzeTextBands } from './text-regions.mjs?v=1';
 /**
  * ALBUMS MODULE (Full-Screen Immersion Edition with ML Face Detection)
  */
@@ -24,8 +24,9 @@ const CONFIG = {
     
     // Read-only local source and official radio metadata
     LIVE_POLL_INTERVAL: 1000,
-    RADIO_POLL_INTERVAL: 10000,
-    RADIO_GAP_POLL_INTERVAL: 5000,
+    RADIO_POLL_INTERVAL: 1500,
+    RADIO_GAP_POLL_INTERVAL: 1500,
+    RADIO_FADE_DURATION: 450,
     LIVE_FAILURE_GRACE_MS: 5000,
 
     // ML Model URL (using a fast CDN for the weights)
@@ -35,7 +36,7 @@ const CONFIG = {
 // --- STATE MANAGEMENT ---
 let intervals = { live: null, csv: null };
 let radioInGap = false;
-let epoch = 0, radioCache = null, radioCheckedAt = 0, radioAttemptedKey = '', radioArtwork = '', liveArtworkKey = '', liveArtworkURL = '', lastFailureAt = 0;
+let epoch = 0, radioCache = null, radioCheckedAt = 0, lastWasRadio = false, liveArtworkKey = '', liveArtworkURL = '', lastFailureAt = 0;
 
 let state = {
     startupDone: false,
@@ -58,7 +59,7 @@ export async function init(container) {
     console.log("[Albums] Initializing...");
     const session = ++epoch;
     resetState();
-    radioInGap = false; radioCache = null; radioCheckedAt = 0; radioAttemptedKey = ''; radioArtwork = ''; liveArtworkKey = ''; liveArtworkURL = ''; lastFailureAt = 0;
+    radioInGap = false; radioCache = null; radioCheckedAt = 0; lastWasRadio = false; liveArtworkKey = ''; liveArtworkURL = ''; lastFailureAt = 0;
     injectStyles();
 
     container.innerHTML = `
@@ -78,12 +79,10 @@ export async function init(container) {
     if (forcedRadio) {
         container.insertAdjacentHTML('beforeend', '<div id="radio-message" style="position:absolute;inset:0;display:grid;place-items:center;color:white;font:24px system-ui;text-align:center;pointer-events:none;z-index:20">KAN 88 — Connecting…</div>');
     }
-    await loadCSV(session);
-    if (session !== epoch) return;
     if(forcedRadio){
-        try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last&&last.image)showLive('radio|cached',last.image,true);}catch{}
-        if(!state.isTransitioning)startCsvMode();
-    }
+        restoreRadioCover();
+    } else await loadCSV(session);
+    if (session !== epoch) return;
     await checkLive(session);
 }
 
@@ -138,21 +137,26 @@ async function requestWakeLock() {
 }
 
 // --- VISUAL TRANSITION ENGINE ---
-function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
+function performVisualTransition(imageUrl, onSuccessCallback, direct = false, radio = false) {
     const session = epoch;
     if (state.isTransitioning) return false; 
     state.isTransitioning = true;
 
     const loader = new Image();
     if (!direct) loader.crossOrigin = "Anonymous";
+    const fadeMs=radio?CONFIG.RADIO_FADE_DURATION:CONFIG.FADE_DURATION;
+    const holdMs=radio?0:CONFIG.BLACK_HOLD_DURATION+100;
+    const deadline=setTimeout(()=>loader.onerror(),5000);
 
     loader.onload = () => {
+        clearTimeout(deadline);
         if (session !== epoch) return;
         const imgEl = document.getElementById('album-art');
         const bgEl = document.getElementById('bg-layer');
         const wrapperEl = document.getElementById('art-wrapper');
 
         if (!imgEl || !bgEl || !wrapperEl) return; 
+        imgEl.style.transitionDuration=fadeMs+'ms';bgEl.style.transitionDuration=fadeMs+'ms';
 
         // 1. Fade out the current image while it is STILL moving/zoomed
         imgEl.style.opacity = '0';
@@ -189,17 +193,19 @@ function performVisualTransition(imageUrl, onSuccessCallback, direct = false) {
                     if (session !== epoch) return;
                     state.isTransitioning = false;
                     if(onSuccessCallback) onSuccessCallback();
-                }, CONFIG.FADE_DURATION);
+                }, fadeMs);
             });
 
-        }, CONFIG.FADE_DURATION + CONFIG.BLACK_HOLD_DURATION + 100); 
+        }, fadeMs + holdMs);
     };
 
     loader.onerror = () => {
+        clearTimeout(deadline);loader.onload=null;loader.onerror=null;
         if (session !== epoch) return;
         state.isTransitioning = false;
         liveArtworkKey = ''; liveArtworkURL = '';
-        if (forcedRadio && !state.hasArtwork) { if(state.currentMode==='LIVE')startCsvMode();else if(state.currentMode==='CSV')setTimeout(()=>{if(session===epoch&&state.currentMode==='CSV')triggerCsvUpdate();},1000); }
+        if (radio) {radioMessage('KAN 88 — Waiting for artwork…');}
+        else if (forcedRadio && !state.hasArtwork) {radioMessage('KAN 88 — Waiting for artwork…');}
         else if (!state.displayedLiveTrack && state.currentMode==='LIVE') startCsvMode();
         console.warn("Failed to load image:", imageUrl);
     };
@@ -224,6 +230,7 @@ function startCsvMode() {
 const params = new URLSearchParams(location.search);
 const host = params.get('ip') || '';
 const forcedRadio = params.get('source') === 'kan88';
+const RADIO_ORIGIN = 'https://albumclock.sadke8465.workers.dev';
 function privateIP(v) {
     const p = v.split('.');
     return p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && Number(x)<=255) &&
@@ -233,8 +240,12 @@ const wiimBase = privateIP(host) ? 'https://' + host : null;
 const clean = v => typeof v === 'string' && !/^(unknown?|unknown|n\/a|null)$/i.test(v.trim()) ? v.trim() : '';
 const norm = v => String(v || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 function classifyPlayback(status, meta) {
-    if (status.status !== 'play' || String(status.mode) !== '1') return 'idle';
-    if (/^(radio\s*88\s*fm|kan\s*88|כאן\s*88)$/i.test(clean(meta.title))) return 'radio';
+    if (status.status !== 'play') return 'idle';
+    let statusTitle='';
+    try{if(typeof status.Title==='string'&&/^(?:[0-9a-f]{2})+$/i.test(status.Title))statusTitle=new TextDecoder().decode(Uint8Array.from(status.Title.match(/../g),x=>parseInt(x,16)));}catch{}
+    if (/^(radio\s*88\s*fm|kan\s*88(?:\s*-\s*כאן\s*88)?|כאן\s*88)$/i.test(clean(statusTitle))) return 'radio';
+    if (String(status.mode) !== '1') return 'idle';
+    if (/^(radio\s*88\s*fm|kan\s*88(?:\s*-\s*כאן\s*88)?|כאן\s*88)$/i.test(clean(meta.title))) return 'radio';
     return clean(meta.title) && clean(meta.artist) && clean(meta.album) ? 'music' : 'idle';
 }
 async function getJSON(url, timeout=4000) {
@@ -259,50 +270,46 @@ function showLive(key,url,direct=false) {
     enterLive();
     state.liveTrackStartTime=Date.now();
     state.liveZoomTriggered=false;
-    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');if(key.startsWith('radio|')&&key!=='radio|cached'){try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:url,time:Date.now()}));}catch{}}},direct);
+    performVisualTransition(url,()=>{state.displayedLiveTrack=key;radioMessage('');if(key.startsWith('radio|')&&key!=='radio|cached'){try{localStorage.setItem('crt-kan88-last',JSON.stringify({image:url,key,time:Date.now()}));}catch{}}},direct,key.startsWith('radio|'));
+}
+function restoreRadioCover(){
+    try{const last=JSON.parse(localStorage.getItem('crt-kan88-last')||'null');if(last?.image){const url=new URL(last.image);if(url.protocol==='https:')showLive(last.key||'radio|cached',url.href,url.origin!==RADIO_ORIGIN);}}catch{}
 }
 function radioMessage(message) {
     const node=document.getElementById('radio-message');
     if(node){const visible=message&&!state.hasArtwork;node.textContent=visible?message:'';node.style.display=visible?'grid':'none';}
 }
 function enterIdle() {
-    if(forcedRadio){if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;}
+    if(forcedRadio)return;
+    lastWasRadio=false;
     state.displayedLiveTrack=null;
     liveArtworkKey=''; liveArtworkURL='';
     if (!state.isTransitioning) startCsvMode();
 }
 async function radioSource(session) {
+    const entering=!lastWasRadio;lastWasRadio=true;
+    enterLive();
+    if(entering){radioCheckedAt=0;if(!state.displayedLiveTrack?.startsWith('radio|')&&!state.isTransitioning)restoreRadioCover();}
     const now=Date.now();
     if (now-radioCheckedAt>=(radioInGap?CONFIG.RADIO_GAP_POLL_INTERVAL:CONFIG.RADIO_POLL_INTERVAL) || !radioCheckedAt) {
         radioCheckedAt=now;
         let response;
-        try { response=await getJSON('https://www.kan.org.il/api/arc-cloud/get-live-track-data?channelId=4',10000); }
-        catch(e){radioCheckedAt=0;radioInGap=true;console.warn('Kan metadata unavailable',e);if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;}
+        try { response=await getJSON(RADIO_ORIGIN+'/v1/radio/kan88/state',3500); }
+        catch(e){radioInGap=true;console.warn('Kan artwork unavailable',e);checkSmartZoomTimer();return;}
         if(session!==epoch)return;
         radioCache=response;
     }
     if(session!==epoch)return;
-    const x=radioCache||{},title=clean(x.title),artists=Array.isArray(x.artists)?x.artists.map(clean).filter(Boolean):[];
-    const end=Date.parse(x.endTime), start=Date.parse(x.startTime);
-    if (!title || !artists.length || !Number.isFinite(end) || !Number.isFinite(start) || now>end+15000 || now<start-60000) {
-        radioInGap=true;
-        if (state.currentMode==='LIVE' && (state.displayedLiveTrack?.startsWith('radio|') || state.isTransitioning)) return;
-        if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();return;
+    const x=radioCache||{};
+    radioInGap=x.status!=='ready';
+    // Same immutable cover hash as the LED. The Worker is the single source
+    // of truth, including during metadata gaps or unresolved songs.
+    if(/^[a-f0-9]{64}$/.test(x.sha256||'') && x.cover_url==='/v1/radio/cover/'+x.sha256)
+        showLive('radio|'+x.sha256,RADIO_ORIGIN+x.cover_url,false);
+    else {
+        radioMessage(x.current_title?'KAN 88 — Finding cover: '+x.current_title:'KAN 88 — Waiting for artwork…');
+        checkSmartZoomTimer();
     }
-    radioInGap=false;
-    const key='radio|'+title+'|'+artists.join('|')+'|'+start;
-    if(radioAttemptedKey!==key){
-        if(forcedRadio&&!state.displayedLiveTrack)radioMessage('KAN 88 — Finding cover: '+title+' — '+artists.join(', '));
-        let match;
-        try {match=await resolveArtwork(title,artists);}catch(e){throw Error('Artwork search: '+e.message);}
-        if(session!==epoch)return;
-        radioAttemptedKey=key;
-        radioArtwork=match?.image||'';
-
-    }
-    if(session!==epoch)return;
-    if(radioArtwork)showLive(key,radioArtwork,true);
-    else if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();
 }
 async function checkLive(session) {
     if(session!==epoch)return;
@@ -316,6 +323,7 @@ async function checkLive(session) {
             const meta=data.metaData||{},mode=classifyPlayback(status,meta);
             if(mode==='radio')await radioSource(session);
             else if(mode==='music'){
+                lastWasRadio=false;
                 const key='music|'+[meta.artist,meta.album,meta.title].join('|');
                 if(liveArtworkKey!==key){
                     const url=new URL(meta.albumArtURI||'/data/AirplayArtWorkData.jpeg',wiimBase);
@@ -331,9 +339,9 @@ async function checkLive(session) {
         if(session!==epoch)return;
         console.warn('[Albums] Playback source unavailable',err);
         if(!lastFailureAt)lastFailureAt=Date.now();
-        if(forcedRadio) {if(!state.hasArtwork&&!state.isTransitioning)startCsvMode();}
+        if(forcedRadio||lastWasRadio) {delay=CONFIG.RADIO_POLL_INTERVAL;checkSmartZoomTimer();}
         else if(state.currentMode==='STARTUP'||Date.now()-lastFailureAt>CONFIG.LIVE_FAILURE_GRACE_MS)enterIdle();
-        delay=5000;
+        if(!forcedRadio&&!lastWasRadio)delay=5000;
     }finally{if(session===epoch)intervals.live=setTimeout(()=>checkLive(session),delay);}
 }
 
@@ -369,6 +377,7 @@ async function runSmartZoomSequence() {
     }
 
     const isFaceMode = points[0].type === 'face';
+    const isTextMode = points[0].type === 'text';
     console.log(`Running in ${isFaceMode ? 'FACE' : 'EDGE'} mode. Points found: ${points.length}`);
 
     const winW = window.innerWidth;
@@ -379,7 +388,7 @@ async function runSmartZoomSequence() {
     const scaleToCoverY = winH / rect.height;
     const minCoverScale = Math.max(scaleToCoverX, scaleToCoverY) * 1.05;
 
-    const baseZoom = isFaceMode ? CONFIG.FACE_ZOOM_DEPTH : CONFIG.EDGE_ZOOM_DEPTH;
+    const baseZoom = isFaceMode ? CONFIG.FACE_ZOOM_DEPTH : isTextMode ? 1.5 : CONFIG.EDGE_ZOOM_DEPTH;
     let requiredScale = minCoverScale * baseZoom;
     
     points.forEach(p => {
@@ -395,7 +404,7 @@ async function runSmartZoomSequence() {
         requiredScale = Math.max(requiredScale, reqX * 1.05, reqY * 1.05);
     });
 
-    const maxScaleMult = isFaceMode ? 3.5 : 1.6;
+    const maxScaleMult = isFaceMode ? 3.5 : isTextMode ? 2.1 : 1.6;
     const targetScale = Math.min(requiredScale, minCoverScale * maxScaleMult);
 
     const getTransform = (point) => {
@@ -477,7 +486,7 @@ async function analyzeImageForCrops(imgElement) {
     const imgHeight = imgElement.naturalHeight || imgElement.height;
 
     // 1. Try ML Face Detection First
-    if (state.modelsLoaded && window.faceapi) {
+    if (state.modelsLoaded && window.faceapi) try {
         const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
         const detections = await faceapi.detectAllFaces(imgElement, options);
 
@@ -496,9 +505,18 @@ async function analyzeImageForCrops(imgElement) {
                 };
             });
         }
-    }
+    } catch(err) {console.warn('Face inference unavailable; trying text regions',err);}
 
-    // 2. Fallback to Edge Detection
+    // 2. Detect text bands without OCR or a language-specific model.
+    const n=128, canvas=document.createElement('canvas');canvas.width=n;canvas.height=n;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(imgElement,0,0,n,n);
+    const rgba=ctx.getImageData(0,0,n,n).data,gray=new Uint8Array(n*n);
+    for(let i=0;i<gray.length;i++)gray[i]=(rgba[i*4]*77+rgba[i*4+1]*150+rgba[i*4+2]*29)>>8;
+    const text=analyzeTextBands(gray,n);
+    if(text.length)return text;
+
+    // 3. Fallback to Edge Detection
     return fallbackEdgeDetection(imgElement, imgWidth, imgHeight);
 }
 
